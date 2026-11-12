@@ -351,16 +351,6 @@ select.sel{min-height:44px;padding:0 10px;border:1px solid #C9D2DE;border-radius
       box('잔금 남은 현장 (검사 완료)', unpaid, 'background:#FFE4E6;color:#9F1239', function (it) { return fmt(it.balance); }) + '</section></div>';
   }
 
-  function pageNotice() {
-    var out = headerSub('미납공문 처리로그') + waitSheets();
-    if (!S.sheets) return out;
-    var N = S.sheets.notices, total = N.reduce(function (a, n) { return a + n.amt; }, 0);
-    var g = 'grid-template-columns:minmax(120px,1fr) 110px 110px 110px 150px 120px';
-    return out + '<section class="card sec"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px"><h2>미납 공문 발송 대상</h2><span class="num" style="font-size:14px;color:var(--sub2)">합계 <strong style="color:var(--ink)">' + fmt(total) + '</strong> 원</span></div><div class="scroll"><div style="min-width:760px">' +
-      '<div class="head" style="' + g + '"><span class="th">현장</span><span class="th">사업주</span><span class="th">사용전검사</span><span class="th">기한일</span><span class="th r">미납 금액</span><span class="th r">공문 작성일</span></div>' +
-      N.map(function (n) { return '<div class="row" style="' + g + ';font-size:14px;min-height:50px"><span style="font-weight:600">' + h(n.site) + '</span><span style="color:var(--sub2)">' + h(n.owner || '—') + '</span><span class="num">' + dot(n.insp) + '</span><span class="num">' + dot(n.due) + '</span><span class="num r" style="font-weight:600;color:var(--red)">' + fmt(n.amt) + '</span><span class="num r" style="color:var(--sub2)">' + dot(n.date) + '</span></div>'; }).join('') + '</div></div></section>';
-  }
-
   function pageLedger() {
     var out = headerSub('일자별 기록') + waitSheets();
     if (!S.sheets) return out;
@@ -409,6 +399,191 @@ select.sel{min-height:44px;padding:0 10px;border:1px solid #C9D2DE;border-radius
     else if (e.key === 'Enter') { e.preventDefault(); if (list[S.act]) { pick(list[S.act].id); } }
     else if (e.key === 'Escape') { S.dd = false; renderDropdown(); }
   });
+
+  /* ---------- 공문 작성 · 발송대장 ---------- */
+  var TPL_SRC = { '미납공문': 'unpaid-template.json', '내용증명': 'notice-template.json' };
+  var TPLS = {};
+  S.nfKind = '미납공문'; S.nfQ = ''; S.nfOpen = false; S.nfMsg = ''; S.nfDel = '';
+  function isoToday() { return new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
+  function monthEnd(iso) { var m = /^(\d{4})-(\d{2})/.exec(iso || ''); return m ? new Date(Date.UTC(+m[1], +m[2], 0)).toISOString().slice(0, 10) : ''; }
+  function toIso(v) { v = String(v || '').trim(); var m = /^(\d{4})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{1,2})/.exec(v); if (m) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2); return ''; }
+  function kDate(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || ''); return m ? (+m[1]) + '년 ' + (+m[2]) + '월 ' + (+m[3]) + '일' : (iso || ''); }
+  function numOf(v) { return Number(String(v == null ? '' : v).replace(/[^\d]/g, '')) || 0; }
+  function won(n) { return n ? Number(n).toLocaleString('ko-KR') : ''; }
+  function hangul(n) { n = Math.round(Math.abs(Number(n) || 0)); if (!n) return '영'; var d = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'], u = ['', '십', '백', '천'], b = ['', '만', '억', '조'], out = '', g = 0; while (n > 0) { var c = n % 10000; if (c) { var t = '', cs = ('000' + c).slice(-4); for (var i = 0; i < 4; i++) { var v = +cs[i]; if (v) t += d[v] + u[3 - i]; } out = t + b[g] + out; } n = Math.floor(n / 10000); g++; } return out; }
+  function emptyForm() { return { site: '', owner: '', addr: '', cdate: '', idate: '', ddate: '', cond: '사용전검사(준공)일이 속한 달의 말일', docNo: '', total: '', paid: '', due: '', date: isoToday() }; }
+  S.nf = emptyForm();
+  function lgGet() { try { return JSON.parse(localStorage.getItem('fs-notice-log') || '[]'); } catch (e) { return []; } }
+  function lgSet(a) { try { localStorage.setItem('fs-notice-log', JSON.stringify(a)); } catch (e) {} }
+  function nextDocNo(date) { var ymd = String(date || isoToday()).replace(/-/g, ''); var n = lgGet().filter(function (r) { return r.kind === '미납공문' && String(r.docNo || '').indexOf(ymd + '-') === 0; }).length + 1; return ymd + '-' + ('0' + n).slice(-2); }
+  function nfSources() {
+    var out = [], seen = {};
+    ((S.sheets && S.sheets.notices) || []).forEach(function (n, i) {
+      if (!n.site) return; seen[norm(n.site)] = 1;
+      out.push({ name: n.site, sub: '미납공문 대상 · 미납 ' + fmt(n.amt) + '원' + (n.due ? ' · 기한 ' + dot(toIso(n.due) || n.due) : ''),
+        fill: { site: n.site, owner: n.owner || '', idate: toIso(n.insp), ddate: toIso(n.due) || monthEnd(toIso(n.insp)), due: won(n.amt) } });
+    });
+    items().forEach(function (it) {
+      var bal = Number(it.balance) || 0; if (bal <= 0 || seen[norm(it.name)]) return; seen[norm(it.name)] = 1;
+      var idate = it.inspectionPlanned ? '' : (it.inspectionDate || '');
+      var paid = Number(it.paid) || 0, total = Number(it.amount || it.total) || (paid ? paid + bal : 0);
+      out.push({ name: it.name, sub: 'ERP 잔금 ' + fmt(bal) + '원',
+        fill: { site: it.name, owner: it.owner || '', addr: it.address || '', cdate: it.contractDate || '', idate: idate, ddate: monthEnd(idate), due: won(bal), paid: won(paid), total: won(total) } });
+    });
+    return out;
+  }
+  var NF_FIELDS = {
+    '미납공문': [['date', '시행일자 (날짜)', 'date'], ['docNo', '문서번호', 'text'], ['site', '발전소', 'text'], ['owner', '사업주명 (상호)', 'text'], ['idate', '사용전검사일', 'date'], ['ddate', '잔금 지급기한', 'date'], ['cond', '계약상 잔금 지급 조건', 'text', 1], ['due', '미납 잔금 (원)', 'money']],
+    '내용증명': [['date', '시행일자', 'date'], ['site', '발전소', 'text'], ['owner', '수신자 (사업주)', 'text'], ['addr', '수신자 주소', 'text', 1], ['cdate', '계약일', 'date'], ['idate', '준공일 (사용전검사)', 'date'], ['total', '총 공사대금 (VAT 포함, 원)', 'money'], ['paid', '기 수령액 (원)', 'money'], ['due', '미수금 · 지급 요청액 (원)', 'money']]
+  };
+  function nfWarn() {
+    var f = S.nf, k = S.nfKind, prev = f.site ? lgGet().filter(function (r) { return r.site === f.site && r.kind === '미납공문'; }) : [];
+    if (k === '미납공문' && f.ddate && f.ddate >= isoToday()) return '잔금 지급기한(' + kDate(f.ddate) + ')이 아직 지나지 않았습니다.';
+    if (k === '미납공문' && prev.length) return '이 현장은 ' + prev[0].date + '에 미납공문을 작성한 기록이 있습니다. 계속 미입금이면 내용증명(2차)으로 진행하세요.';
+    if (k === '내용증명' && f.site && !prev.length) return '이 현장은 1차 미납공문 기록이 없습니다. 먼저 미납공문을 보냈는지 확인하세요.';
+    if (k === '내용증명' && f.total && numOf(f.total) - numOf(f.paid) !== numOf(f.due)) return '총 공사대금 − 기 수령액이 미수금과 다릅니다. 금액을 확인하세요.';
+    if (f.site && (!f.owner || (k === '내용증명' && !f.addr))) return '수신자(사업주) 이름이나 주소가 비어 있습니다. 직접 입력해 주세요.';
+    return '';
+  }
+  function nfHint(key) { var v = numOf(S.nf[key]); return v ? '금 ' + hangul(v) + '원정' : ''; }
+  function nfFormHtml() {
+    var f = S.nf;
+    return NF_FIELDS[S.nfKind].map(function (d) {
+      var k = d[0], money = d[2] === 'money', ph = k === 'docNo' ? '비우면 자동 (' + nextDocNo(f.date) + ')' : '';
+      return '<label style="display:flex;flex-direction:column;gap:6px;min-width:0' + (d[3] ? ';grid-column:1/-1' : '') + '"><span class="th">' + d[1] + '</span>' +
+        '<input class="nf-in" data-f="' + k + '" type="' + (d[2] === 'date' ? 'date' : 'text') + '"' + (money ? ' inputmode="numeric"' : '') + ' value="' + h(f[k] || '') + '" placeholder="' + h(ph) + '" style="min-height:42px;padding:0 12px;border:1px solid #C9D2DE;border-radius:10px;font-size:14px;color:var(--ink);background:#FFF;width:100%">' +
+        (money ? '<span class="num muted" id="nfh-' + k + '" style="font-size:12px">' + nfHint(k) + '</span>' : '') + '</label>';
+    }).join('');
+  }
+  function nfList() {
+    var q = norm(S.nfQ), src = nfSources(), list = q ? src.filter(function (o) { return norm(o.name).indexOf(q) >= 0; }) : src;
+    if (!list.length) return '<div class="muted" style="padding:14px 10px;font-size:13px">' + (src.length ? '검색 결과가 없습니다.' : '불러온 미납 대상이 없습니다. 칸에 직접 입력해 주세요.') + '</div>';
+    return list.slice(0, 60).map(function (o) { return '<button class="opt" data-nfpick="' + h(o.name) + '" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:44px;padding:8px 10px;border:0;border-radius:8px;background:#FFF;cursor:pointer;text-align:left"><span style="font-size:14px;font-weight:600;color:var(--ink)">' + h(o.name) + '</span><span class="num muted" style="font-size:12px">' + h(o.sub) + '</span></button>'; }).join('');
+  }
+  function nfRefresh() { var w = $('nfWarn'); if (w) { var t = nfWarn(); w.textContent = t; w.style.display = t ? '' : 'none'; } }
+  function pageNotice() {
+    var out = headerSub('미납공문 처리로그') + waitSheets();
+    var N = (S.sheets && S.sheets.notices) || [], total = N.reduce(function (a, n) { return a + (Number(n.amt) || 0); }, 0);
+    var kinds = [['미납공문', '1차 · 잔금 미납공문'], ['내용증명', '2차 · 내용증명']];
+    var warn = nfWarn();
+    out += '<section class="card sec" style="gap:18px"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px"><div style="display:flex;flex-direction:column;gap:4px"><h2>공문 작성</h2><span class="muted" style="font-size:13px">잔금 지급기한이 지나면 1차 미납공문, 그 뒤에도 미입금이면 2차 내용증명 · 발전소를 고르면 칸이 채워집니다</span></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' + kinds.map(function (k) { return '<button class="tab' + (S.nfKind === k[0] ? ' on' : '') + '" data-nfkind="' + k[0] + '">' + k[1] + '</button>'; }).join('') + '</div></div>' +
+      '<div style="position:relative;max-width:560px;display:flex;flex-direction:column;gap:6px"><span class="th">발전소 검색</span><label class="box" style="padding-right:12px"><span class="sr">발전소 검색</span><input id="nfSite" autocomplete="off" placeholder="발전소명 입력" value="' + h(S.nfQ || S.nf.site) + '"></label>' +
+      '<div id="nfList" role="listbox" style="display:' + (S.nfOpen ? 'block' : 'none') + ';position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:20;max-height:360px;overflow-y:auto;background:#FFF;border:1px solid #C9D2DE;border-radius:12px;box-shadow:0 12px 32px rgba(15,27,45,.16);padding:6px">' + (S.nfOpen ? nfList() : '') + '</div></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">' + nfFormHtml() + '</div>' +
+      '<div id="nfWarn" style="' + (warn ? '' : 'display:none;') + 'padding:10px 14px;border-radius:10px;background:#FFFBEB;color:#92400E;font-size:13px">' + h(warn) + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px"><button class="tab on" id="nfMake" style="min-height:44px;border-radius:10px;padding:0 20px">' + S.nfKind + ' Word 만들기</button><button class="tab" id="nfReset" style="min-height:44px;border-radius:10px">초기화</button>' + (S.nfMsg ? '<span style="font-size:13px;color:var(--teal)">' + h(S.nfMsg) + '</span>' : '') + '</div></section>';
+
+    var L = lgGet();
+    var g2 = 'grid-template-columns:110px 80px minmax(120px,1fr) 110px 140px 120px 160px 150px';
+    out += '<section class="card sec"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px"><h2>미납공문 · 내용증명 발송대장</h2><span style="display:flex;gap:10px;align-items:center"><span class="num muted" style="font-size:13px">' + L.length + '건</span><button class="tab" id="lgCsv">엑셀(CSV) 받기</button></span></div>' +
+      '<span class="muted" style="font-size:12px">발송대장은 이 브라우저에 저장됩니다.</span><div class="scroll"><div style="min-width:900px">' +
+      '<div class="head" style="' + g2 + '"><span class="th">시행일자</span><span class="th">종류</span><span class="th">발전소</span><span class="th">사업주</span><span class="th r">금액</span><span class="th">상태</span><span class="th">등기번호</span><span class="th">파일</span></div>' +
+      (L.length ? L.map(function (r) {
+        var unp = r.kind === '미납공문';
+        return '<div class="row" style="' + g2 + ';font-size:14px;min-height:52px"><span class="num" style="color:var(--sub2)">' + dot(r.date) + '</span><span><span class="chip" style="border-radius:6px;' + (unp ? 'background:#FEF3C7;color:#92400E' : 'background:#FFE4E6;color:#9F1239') + '">' + h(r.kind) + '</span></span><span style="font-weight:600">' + h(r.site) + '</span><span style="color:var(--sub2)">' + h(r.owner || '') + '</span><span class="num r" style="font-weight:600;color:var(--red)">' + fmt(r.amount) + '</span>' +
+          '<select data-lgst="' + r.id + '" aria-label="상태" style="min-height:36px;border:1px solid #C9D2DE;border-radius:8px;font-size:13px;background:#FFF">' + ['작성', '발송', '수령', '입금완료', '보류'].map(function (s) { return '<option' + (r.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>' +
+          '<input data-lgreg="' + r.id + '" aria-label="등기번호" placeholder="등기번호" value="' + h(r.reg || '') + '" style="min-height:36px;padding:0 8px;border:1px solid #C9D2DE;border-radius:8px;font-size:13px;min-width:0">' +
+          '<span style="display:flex;gap:6px"><button class="tab" data-lgagain="' + r.id + '" style="min-height:36px;border-radius:8px;padding:0 10px">다시 받기</button><button class="tab" data-lgdel="' + r.id + '" style="min-height:36px;border-radius:8px;padding:0 10px;color:var(--red)">' + (S.nfDel === r.id ? '삭제 확인' : '삭제') + '</button></span></div>';
+      }).join('') : '<div class="muted" style="padding:24px 0;text-align:center;font-size:14px">아직 작성한 공문이 없습니다. 위에서 Word 파일을 만들면 여기에 기록됩니다.</div>') + '</div></div></section>';
+
+    if (!S.sheets) return out;
+    var g = 'grid-template-columns:minmax(120px,1fr) 110px 110px 110px 150px 120px 70px';
+    return out + '<section class="card sec"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px"><h2>미납 공문 발송 대상</h2><span class="num" style="font-size:14px;color:var(--sub2)">합계 <strong style="color:var(--ink)">' + fmt(total) + '</strong> 원</span></div><div class="scroll"><div style="min-width:830px">' +
+      '<div class="head" style="' + g + '"><span class="th">현장</span><span class="th">사업주</span><span class="th">사용전검사</span><span class="th">기한일</span><span class="th r">미납 금액</span><span class="th r">공문 작성일</span><span class="th"></span></div>' +
+      N.map(function (n) { return '<div class="row" style="' + g + ';font-size:14px;min-height:50px"><span style="font-weight:600">' + h(n.site) + '</span><span style="color:var(--sub2)">' + h(n.owner || '—') + '</span><span class="num">' + dot(n.insp) + '</span><span class="num">' + dot(n.due) + '</span><span class="num r" style="font-weight:600;color:var(--red)">' + fmt(n.amt) + '</span><span class="num r" style="color:var(--sub2)">' + dot(n.date) + '</span><span><button class="tab" data-nfpick="' + h(n.site) + '" style="min-height:34px;padding:0 10px">작성</button></span></div>'; }).join('') + '</div></div></section>';
+  }
+  function docVals(f, kind) {
+    var due = numOf(f.due);
+    if (kind === '미납공문') return { 문서번호: f.docNo || '', 시행일자: kDate(f.date), 수신: (f.owner || '') + ' (' + (f.site || '') + ' 태양광발전소)', 발전소: f.site || '', 사업주: f.owner || '', 사용전검사일: kDate(f.idate), 지급조건: f.cond || '', 잔금지급기한: kDate(f.ddate), 미납금액: '금 ' + won(due) + '원 (금 ' + hangul(due) + '원정)' };
+    var tot = numOf(f.total), paid = numOf(f.paid);
+    return { 시행일자: kDate(f.date), 사업주: f.owner || '', 주소: f.addr || '', 발전소: f.site || '', 계약일: kDate(f.cdate), 준공일: kDate(f.idate), 총공사대금: won(tot), 총공사대금_한글: hangul(tot), 기수령액: won(paid) || '0', 미수금: won(due), 미수금_한글: hangul(due) };
+  }
+  var CRC_T = null;
+  function zipStore(files) {
+    if (!CRC_T) { CRC_T = new Uint32Array(256); for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_T[n] = c >>> 0; } }
+    var crc32 = function (a) { var c = 0xFFFFFFFF; for (var i = 0; i < a.length; i++) c = CRC_T[(c ^ a[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    var enc = new TextEncoder(), parts = [], central = [], off = 0;
+    files.forEach(function (f) {
+      var name = enc.encode(f.name), data = f.data, crc = crc32(data), hd = new DataView(new ArrayBuffer(30));
+      hd.setUint32(0, 0x04034b50, true); hd.setUint16(4, 20, true); hd.setUint16(6, 0x0800, true); hd.setUint16(12, 0x21, true); hd.setUint32(14, crc, true); hd.setUint32(18, data.length, true); hd.setUint32(22, data.length, true); hd.setUint16(26, name.length, true);
+      parts.push(new Uint8Array(hd.buffer), name, data);
+      var c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(14, 0x21, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+      central.push(new Uint8Array(c.buffer), name); off += 30 + name.length + data.length;
+    });
+    var cs = 0; central.forEach(function (x) { cs += x.length; });
+    var e = new DataView(new ArrayBuffer(22)); e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cs, true); e.setUint32(16, off, true);
+    var all = parts.concat(central, [new Uint8Array(e.buffer)]), len = 0; all.forEach(function (x) { len += x.length; });
+    var out = new Uint8Array(len), p = 0; all.forEach(function (x) { out.set(x, p); p += x.length; }); return out;
+  }
+  function makeDocx(f, kind) {
+    var get = TPLS[kind] ? Promise.resolve(TPLS[kind]) : fetch(TPL_SRC[kind] + '?v=1').then(function (r) { if (!r.ok) throw new Error('양식 파일 없음'); return r.json(); }).then(function (t) { TPLS[kind] = t; return t; });
+    return get.then(function (tpl) {
+      var vals = docVals(f, kind), esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+      var doc = tpl.doc.replace(/\{\{([^}]+)\}\}/g, function (m, k) { return esc(vals[k]); }).replace(/<w:highlight w:val="yellow"\/>/g, '');
+      var enc = new TextEncoder(), b64 = function (b) { var s = atob(b), a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; };
+      return zipStore(tpl.order.map(function (name) { return { name: name, data: name === 'word/document.xml' ? enc.encode(doc) : b64(tpl.parts[name]) }; }));
+    });
+  }
+  function fileName(f, kind) { return (kind === '미납공문' ? '잔금미납안내공문_' : '내용증명_') + String(f.site || '발전소').replace(/[\\\/:*?"<>|]/g, '_') + '_' + String(f.date || '').replace(/-/g, '') + '.docx'; }
+  function saveBlob(name, blob) { var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 8000); }
+  var DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  function nfPick(name) {
+    var o = nfSources().filter(function (x) { return x.name === name; })[0];
+    S.nf = Object.assign(emptyForm(), o ? o.fill : { site: name });
+    S.nfQ = ''; S.nfOpen = false; S.nfMsg = o ? '' : name + ' — 불러온 정보가 없어 직접 입력해 주세요';
+    if (S.page !== 'notice') S.page = 'notice';
+    render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function nfMake() {
+    var kind = S.nfKind, f = Object.assign({}, S.nf);
+    if (!f.site || !numOf(f.due)) { S.nfMsg = '발전소와 금액을 입력해 주세요'; render(); return; }
+    if (kind === '미납공문' && !f.docNo) f.docNo = nextDocNo(f.date);
+    S.nfMsg = '파일 만드는 중…'; render();
+    makeDocx(f, kind).then(function (bytes) {
+      var fn = fileName(f, kind);
+      saveBlob(fn, new Blob([bytes], { type: DOCX_MIME }));
+      var L = lgGet(); L.unshift({ id: 'n' + Date.now().toString(36), kind: kind, docNo: kind === '미납공문' ? f.docNo : '', site: f.site, owner: f.owner || '', amount: numOf(f.due), date: f.date, status: '작성', reg: '', form: f, createdAt: new Date().toISOString() }); lgSet(L);
+      S.nfMsg = fn + ' 저장 · 발송대장에 기록했습니다'; render();
+    }).catch(function (e) { S.nfMsg = '파일을 만들지 못했습니다: ' + ((e && e.message) || e); render(); });
+  }
+  function lgUpdate(id, patch) { var L = lgGet(); L.forEach(function (r) { if (r.id === id) Object.assign(r, patch); }); lgSet(L); }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-nfkind],[data-nfpick],#nfMake,#nfReset,#lgCsv,[data-lgagain],[data-lgdel]');
+    if (!t) return;
+    if (t.dataset.nfkind) { S.nfKind = t.dataset.nfkind; S.nfMsg = ''; render(); }
+    else if (t.dataset.nfpick) nfPick(t.dataset.nfpick);
+    else if (t.id === 'nfMake') nfMake();
+    else if (t.id === 'nfReset') { S.nf = emptyForm(); S.nfQ = ''; S.nfMsg = ''; render(); }
+    else if (t.id === 'lgCsv') {
+      var rows = [['시행일자', '종류', '문서번호', '발전소', '사업주', '금액', '상태', '등기번호']].concat(lgGet().map(function (r) { return [r.date, r.kind, r.docNo || '', r.site, r.owner || '', r.amount, r.status, r.reg || '']; }));
+      var csv = rows.map(function (r) { return r.map(function (c) { c = String(c == null ? '' : c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(','); }).join('\r\n');
+      saveBlob('공문발송대장_' + isoToday().replace(/-/g, '') + '.csv', new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    }
+    else if (t.dataset.lgagain) { var r = lgGet().filter(function (x) { return x.id === t.dataset.lgagain; })[0]; if (r && r.form) makeDocx(r.form, r.kind).then(function (b) { saveBlob(fileName(r.form, r.kind), new Blob([b], { type: DOCX_MIME })); }); }
+    else if (t.dataset.lgdel) { if (S.nfDel === t.dataset.lgdel) { lgSet(lgGet().filter(function (x) { return x.id !== t.dataset.lgdel; })); S.nfDel = ''; } else S.nfDel = t.dataset.lgdel; render(); }
+  });
+  document.addEventListener('mousedown', function (e) { if (e.target.closest('[data-nfpick]') && e.target.closest('#nfList')) e.preventDefault(); });
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.id === 'nfSite') { S.nfQ = t.value; S.nfOpen = true; var l = $('nfList'); if (l) { l.style.display = 'block'; l.innerHTML = nfList(); } }
+    else if (t.classList && t.classList.contains('nf-in')) {
+      var k = t.dataset.f; S.nf[k] = t.value;
+      if (k === 'idate') { S.nf.ddate = monthEnd(t.value); var dd = document.querySelector('.nf-in[data-f="ddate"]'); if (dd) dd.value = S.nf.ddate; }
+      if ((k === 'total' || k === 'paid') && S.nfKind === '내용증명') { var d = numOf(S.nf.total) - numOf(S.nf.paid); S.nf.due = d > 0 ? won(d) : ''; var di = document.querySelector('.nf-in[data-f="due"]'); if (di) di.value = S.nf.due; var dh = $('nfh-due'); if (dh) dh.textContent = nfHint('due'); }
+      var hEl = $('nfh-' + k); if (hEl) hEl.textContent = nfHint(k);
+      nfRefresh();
+    }
+    else if (t.dataset && t.dataset.lgreg) lgUpdate(t.dataset.lgreg, { reg: t.value });
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.classList && t.classList.contains('nf-in') && /^(total|paid|due)$/.test(t.dataset.f)) { var v = numOf(t.value); t.value = S.nf[t.dataset.f] = v ? won(v) : ''; }
+    else if (t.dataset && t.dataset.lgst) lgUpdate(t.dataset.lgst, { status: t.value });
+  });
+  document.addEventListener('focusin', function (e) { if (e.target.id === 'nfSite') { try { e.target.select(); } catch (x) {} S.nfOpen = true; S.nfQ = ''; var l = $('nfList'); if (l) { l.style.display = 'block'; l.innerHTML = nfList(); } } });
+  document.addEventListener('focusout', function (e) { if (e.target.id === 'nfSite') setTimeout(function () { S.nfOpen = false; S.nfQ = ''; var l = $('nfList'); if (l) l.style.display = 'none'; var i = $('nfSite'); if (i && document.activeElement !== i) i.value = S.nf.site || ''; }, 150); });
 
   render();
   load();
