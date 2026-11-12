@@ -478,13 +478,18 @@ body.embed main{padding:20px 24px 32px}
     else if (m) {
       var hits = [], lost = [];
       m.targets.forEach(function (t) {
-        var cur = byId(t.src, t.id);
-        if (cur === null) lost.push(t.name || t.id);
-        else {
-          var mb = t.src === '현장' ? mergedBond(cur ? cur.name : t.name) : null;
-          var e = mb ? { src: '채권', id: mb.id, name: mb.name, status: mb.status } : { src: t.src, id: t.id, name: cur ? cur.name : t.name, status: cur ? cur.status : '' };
-          if (!hits.some(function (x) { return x.src === e.src && x.id === e.id; })) hits.push(e);
+        var cur = byId(t.src, t.id), nm = cur ? cur.name : t.name, e = null;
+        // 채권관리에서 병합됐으면(호기가 병합 항목으로 들어감) 병합 항목으로 자동 변경
+        var mb = !(cur && cur.merged) && S.bonds ? mergedBond(nm) : null;
+        if (mb) e = mb;
+        else if (cur) e = { src: t.src, id: t.id, name: cur.name, status: cur.status };
+        else if (cur === undefined) e = { src: t.src, id: t.id, name: t.name, status: '' };
+        else { // ERP에서 id가 없어짐 → 저장된 이름으로 채권관리에서 다시 찾기
+          var L = inBonds(getIdx(), t.name);
+          if (L && !ambiguous(L)) e = L[0];
         }
+        if (!e) { lost.push(t.name || t.id); return; }
+        if (!hits.some(function (x) { return x.src === e.src && x.id === e.id; })) hits.push({ src: e.src, id: e.id, name: e.name, status: e.status });
       });
       res = lost.length ? { state: 'bad', hits: hits, manual: true, lost: lost } : { state: 'ok', hits: hits, manual: true };
     } else res = autoMatch(getIdx(), n);
