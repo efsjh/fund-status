@@ -516,11 +516,48 @@ body.embed main{padding:20px 24px 32px}
       '<span class="chip" style="' + MCOL.ok + '">매칭됨 ' + st.ok.length + '곳</span>' +
       '<span class="chip" style="' + MCOL.bad + '">미매칭 ' + st.bad.length + '곳</span>' +
       '<span class="chip" style="' + MCOL.none + '">발전소 아님 ' + st.none.length + '곳</span></div>' +
-      (st.bad.length ? '<span class="muted">빨간 발전소를 누르면 ERP 채권관리·현장관리 목록에서 골라 매칭할 수 있어요. 많이 나오는 순서입니다.</span>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow-y:auto;padding:2px">' + st.bad.map(function (b) {
-          return '<button class="mchip" data-mm="' + h(b.name) + '" style="' + MCOL.bad + '">' + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>';
-        }).join('') + '</div>' : '<span class="muted">모든 발전소가 ERP와 매칭되어 있습니다.</span>') + '</section>';
+      (st.bad.length ? bulkBar(st.bad) +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:' + (S.msel ? 320 : 190) + 'px;overflow-y:auto;padding:2px">' + st.bad.map(function (b) {
+          var on = S.msel && S.msel[b.name];
+          return S.msel
+            ? '<button class="mchip" data-mpick="' + h(b.name) + '" aria-pressed="' + (on ? 'true' : 'false') + '" style="' + (on ? 'background:#0F1B2D;color:#FFF' : MCOL.bad) + '">' + (on ? '✓ ' : '') + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>'
+            : '<button class="mchip" data-mm="' + h(b.name) + '" style="' + MCOL.bad + '">' + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>';
+        }).join('') + '</div>' : '<span class="muted">모든 발전소가 ERP와 매칭되어 있습니다.</span>' + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '')) + '</section>';
   }
+  /* 여러 개 한꺼번에 '발전소 아님' */
+  S.msel = null; S.mbBusy = false; S.mbMsg = '';
+  function bulkBar(bad) {
+    if (!S.msel) return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span class="muted">빨간 발전소를 누르면 ERP 목록에서 골라 매칭할 수 있어요. 많이 나오는 순서입니다.</span>' +
+      '<button class="tab" data-mbulk="start">여러 개 골라서 발전소 아님</button></div>' + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '');
+    var n = Object.keys(S.msel).length;
+    return '<div class="warn" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span><b>' + n + '곳 선택됨</b> · 발전소가 아닌 것들을 눌러서 고르세요.</span><span style="display:flex;flex-wrap:wrap;gap:6px">' +
+      '<button class="tab" data-mbulk="all">전체 선택</button><button class="tab" data-mbulk="none"' + (n ? '' : ' disabled') + '>선택 해제</button>' +
+      '<button class="tab" data-mbulk="cancel">취소</button>' +
+      '<button class="tab on" data-mbulk="save"' + (n && !S.mbBusy ? '' : ' disabled') + '>' + (S.mbBusy ? '저장 중…' : n + '곳 발전소 아님으로 저장') + '</button></span></div>' +
+      (S.mbMsg ? '<div class="err">' + h(S.mbMsg) + '</div>' : '');
+  }
+  function bulkSave() {
+    var names = Object.keys(S.msel || {}); if (!names.length) return;
+    S.mbBusy = true; S.mbMsg = ''; render();
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: getKey(), action: 'saveMatchBatch', items: names.map(function (n) { return { name: n, none: true }; }) }) })
+      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        S.mbBusy = false;
+        if (!r.ok) throw new Error(r.error || '알 수 없는 오류');
+        if (!r.matches) throw new Error('Apps Script가 아직 예전 버전입니다. 새 코드로 배포해 주세요.');
+        S.matches = r.matches; resetMatchCache(); S.msel = null; S.mbMsg = names.length + '곳을 발전소 아님으로 저장했습니다. 되돌리려면 목록의 회색 발전소를 눌러 \'직접 매칭 해제\'를 누르세요.'; render();
+      })
+      .catch(function (e) { S.mbBusy = false; S.mbMsg = '저장 실패: ' + ((e && e.message) || e); render(); });
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.mpick !== undefined && S.msel) { var n = t.dataset.mpick; if (S.msel[n]) delete S.msel[n]; else S.msel[n] = 1; var sc = t.parentNode.scrollTop; render(); var box = document.querySelector('[data-mpick]'); if (box) box.parentNode.scrollTop = sc; }
+    else if (t.dataset.mbulk === 'start') { S.msel = {}; S.mbMsg = ''; render(); }
+    else if (t.dataset.mbulk === 'cancel') { S.msel = null; S.mbMsg = ''; render(); }
+    else if (t.dataset.mbulk === 'none') { S.msel = {}; render(); }
+    else if (t.dataset.mbulk === 'all') { matchStats(S.sheets.ledger).bad.forEach(function (b) { S.msel[b.name] = 1; }); render(); }
+    else if (t.dataset.mbulk === 'save') bulkSave();
+  });
 
   /* 매칭 창 */
   function openMatch(name) {
