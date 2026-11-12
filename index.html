@@ -71,6 +71,8 @@ select.sel{min-height:44px;padding:0 10px;border:1px solid #C9D2DE;border-radius
 .mm-list{max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
 .mx{border:0;background:transparent;color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
 .tab:disabled{opacity:.5;cursor:default}
+.mtoggle{display:flex;flex-wrap:wrap;align-items:center;gap:10px;width:100%;border:0;background:transparent;padding:4px 0;cursor:pointer;text-align:left;color:var(--ink);font-family:inherit}
+.mtoggle:focus-visible{outline:2px solid #12A3A8;outline-offset:4px;border-radius:6px}
 body.embed aside{display:none}
 body.embed main{padding:20px 24px 32px}
 @media (max-width:720px){main{padding:20px 16px 40px}.grid-sum{grid-template-columns:1fr}.grid-sum>div{border-right:0;border-bottom:1px solid var(--line)}.erp{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -366,12 +368,12 @@ body.embed main{padding:20px 24px 32px}
   function pageLedger() {
     var out = headerSub('일자별 기록') + waitSheets();
     if (!S.sheets) return out;
-    var q = norm(S.query), L = S.sheets.ledger.filter(function (r) { return (S.kind === '전체' || r.kind === S.kind) && (!q || norm(r.date + r.vendor + r.memo + r.amt + (r.site || '')).indexOf(q) >= 0) && (S.mf === '전체' || !S.bonds || (String(r.site || '').trim() && resolve(r.site).state === (S.mf === '미매칭' ? 'bad' : 'ok'))); });
+    var q = norm(S.query), L = S.sheets.ledger.filter(function (r) { return (S.kind === '전체' || r.kind === S.kind) && (!q || norm(r.date + r.vendor + r.memo + r.amt + (r.site || '')).indexOf(q) >= 0) && (S.mf === '전체' || !S.bonds || (String(r.site || '').trim() && mstate(r.site) === ({ '미매칭': 'bad', '계약금 대기': 'wait', '매칭됨': 'ok' })[S.mf])); });
     L.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
     var g = 'grid-template-columns:110px 70px minmax(100px,140px) minmax(120px,180px) minmax(0,1fr) 150px';
     return out + matchCard() + '<section class="card sec"><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><div style="display:flex;gap:8px;flex-wrap:wrap">' +
       ['전체', '입금', '지출'].map(function (k) { return '<button class="tab' + (S.kind === k ? ' on' : '') + '" data-kind="' + k + '">' + k + '</button>'; }).join('') +
-      (S.bonds ? '<span style="width:1px;background:var(--line);margin:0 4px"></span>' + ['전체', '미매칭', '매칭됨'].map(function (k) { return '<button class="tab' + (S.mf === k ? ' on' : '') + '" data-mf="' + k + '">' + (k === '전체' ? '발전소 전체' : k) + '</button>'; }).join('') : '') + '</div>' +
+      (S.bonds ? '<span style="width:1px;background:var(--line);margin:0 4px"></span>' + ['전체', '미매칭', '계약금 대기', '매칭됨'].map(function (k) { return '<button class="tab' + (S.mf === k ? ' on' : '') + '" data-mf="' + k + '">' + (k === '전체' ? '발전소 전체' : k) + '</button>'; }).join('') : '') + '</div>' +
       '<label class="box" style="flex:0 1 320px;padding-right:12px"><span class="sr">거래처 · 적요 검색</span><input type="search" id="ledgerQ" placeholder="발전소 · 거래처 · 적요 · 날짜 검색" value="' + h(S.query) + '"></label></div>' +
       '<span class="num muted" style="font-size:12px">' + L.length + '건' + (L.length > 300 ? ' · 최근 300건 표시' : '') + '</span><div class="scroll"><div style="min-width:820px">' +
       '<div class="head" style="' + g + '"><span class="th">일자</span><span class="th">구분</span><span class="th">발전소</span><span class="th">거래처</span><span class="th">적요</span><span class="th r">금액</span></div>' +
@@ -456,7 +458,7 @@ body.embed main{padding:20px 24px 32px}
   }
 
   S.sites = null; S.matches = null; S.midx = null; S.mres = null; S.mf = '전체'; S.mm = null; S.mmMsg = ''; S.mmBusy = false;
-  function resetMatchCache() { S.midx = null; S.mres = null; }
+  function resetMatchCache() { S.midx = null; S.mres = null; S.depo = null; }
   function getIdx() { return S.midx || (S.midx = erpIndex(items(), S.sites && S.sites.items)); }
   function byId(src, id) {
     var L = src === '현장' ? (S.sites && S.sites.items) : items();
@@ -495,19 +497,25 @@ body.embed main{padding:20px 24px 32px}
     } else res = autoMatch(getIdx(), n);
     return (S.mres[n] = res);
   }
-  var MCOL = { ok: 'background:#DCFCE7;color:#166534', bad: 'background:#FFE4E6;color:#9F1239', none: 'background:#EEF2F6;color:#4A5668' };
+  var MCOL = { ok: 'background:#DCFCE7;color:#166534', bad: 'background:#FFE4E6;color:#9F1239', wait: 'background:#FEF3C7;color:#92400E', none: 'background:#EEF2F6;color:#4A5668' };
+  // 미매칭인데 '계약금' 내역이 있는 발전소 → ERP 현장관리에 등록되면 매칭할 대기 목록으로 따로 뺌
+  function hasDeposit(n) {
+    if (!S.depo) { S.depo = {}; S.sheets.ledger.forEach(function (r) { if (/계약금/.test((r.memo || '') + ' ' + (r.vendor || ''))) S.depo[String(r.site || '').trim()] = 1; }); }
+    return !!S.depo[n];
+  }
+  function mstate(name) { var n = String(name || '').trim(), st = resolve(n).state; return st === 'bad' && hasDeposit(n) ? 'wait' : st; }
   function siteChip(name) {
     var n = String(name || '').trim();
     if (!n) return '<span class="muted">—</span>';
     if (!S.bonds) return '<span style="color:var(--teal);font-weight:600">' + h(n) + '</span>';
-    var r = resolve(n), tip = r.state === 'ok' ? 'ERP: ' + r.hits.map(function (x) { return x.name; }).join(', ') + (r.manual ? ' (직접 매칭)' : ' (자동)') : r.state === 'none' ? '발전소 아님' : (r.lost ? 'ERP에서 사라진 발전소: ' + r.lost.join(', ') : 'ERP 채권관리·현장관리에서 못 찾음') + ' — 눌러서 매칭';
-    return '<button class="mchip" data-mm="' + h(n) + '" title="' + h(tip) + '" style="' + MCOL[r.state] + '">' + (r.state === 'ok' ? '✓ ' : r.state === 'bad' ? '! ' : '') + h(n) + '</button>';
+    var r = resolve(n), ms = mstate(n), tip = r.state === 'ok' ? 'ERP: ' + r.hits.map(function (x) { return x.name; }).join(', ') + (r.manual ? ' (직접 매칭)' : ' (자동)') : r.state === 'none' ? 'X' : ms === 'wait' ? '계약금 대기 — ERP 현장관리에 등록되면 매칭하세요' : (r.lost ? 'ERP에서 사라진 발전소: ' + r.lost.join(', ') : 'ERP 채권관리·현장관리에서 못 찾음') + ' — 눌러서 매칭';
+    return '<button class="mchip" data-mm="' + h(n) + '" title="' + h(tip) + '" style="' + MCOL[ms] + '">' + (ms === 'ok' ? '✓ ' : ms === 'bad' ? '! ' : '') + h(n) + '</button>';
   }
   function matchStats(L) {
-    var names = {}, st = { ok: [], bad: [], none: [] };
+    var names = {}, st = { ok: [], bad: [], wait: [], none: [] };
     L.forEach(function (r) { var n = String(r.site || '').trim(); if (n) names[n] = (names[n] || 0) + 1; });
-    Object.keys(names).forEach(function (n) { st[resolve(n).state].push({ name: n, cnt: names[n] }); });
-    st.bad.sort(function (a, b) { return b.cnt - a.cnt; });
+    Object.keys(names).forEach(function (n) { st[mstate(n)].push({ name: n, cnt: names[n] }); });
+    st.bad.sort(function (a, b) { return b.cnt - a.cnt; }); st.wait.sort(function (a, b) { return b.cnt - a.cnt; });
     return st;
   }
   function matchCard() {
@@ -516,29 +524,39 @@ body.embed main{padding:20px 24px 32px}
     var src = '채권관리 ' + items().length.toLocaleString('ko-KR') + '곳' + (S.sites ? ' · 현장관리 ' + S.sites.items.length.toLocaleString('ko-KR') + '곳' : '');
     var warn = S.err.getSites ? '<div class="warn">ERP 현장관리를 불러오지 못해 채권관리 기준으로만 점검합니다. (' + h(S.err.getSites) + ')</div>' : (!S.sites ? '<span class="muted">ERP 현장관리 불러오는 중…</span>' : '');
     var mwarn = S.err.getMatches ? '<div class="warn">저장된 매칭을 불러오지 못했습니다. (' + h(S.err.getMatches) + ')</div>' : '';
-    return '<section class="card sec"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:baseline"><h2>발전소 매칭 점검</h2><span class="muted">ERP ' + src + ' 기준</span></div>' + warn + mwarn +
-      '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
-      '<span class="chip" style="' + MCOL.ok + '">매칭됨 ' + st.ok.length + '곳</span>' +
-      '<span class="chip" style="' + MCOL.bad + '">미매칭 ' + st.bad.length + '곳</span>' +
-      '<span class="chip" style="' + MCOL.none + '">발전소 아님 ' + st.none.length + '곳</span></div>' +
+    var head = '<button class="mtoggle" data-mopen="1" aria-expanded="' + (S.mopen ? 'true' : 'false') + '">' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transition:transform .15s;transform:rotate(' + (S.mopen ? 90 : 0) + 'deg)"><path d="M9 6l6 6-6 6"/></svg>' +
+      '<b style="font-size:16px">발전소 매칭 점검</b>' +
+      '<span style="display:flex;flex-wrap:wrap;gap:6px">' +
+      '<span class="chip" style="' + MCOL.ok + '">매칭됨 ' + st.ok.length + '</span>' +
+      '<span class="chip" style="' + MCOL.bad + '">미매칭 ' + st.bad.length + '</span>' +
+      '<span class="chip" style="' + MCOL.wait + '">계약금 대기 ' + st.wait.length + '</span>' +
+      '<span class="chip" style="' + MCOL.none + '">X ' + st.none.length + '</span></span></button>';
+    if (!S.mopen) return '<section class="card" style="padding:14px 22px">' + head + (S.mbMsg ? '<div class="warn" style="margin-top:10px">' + h(S.mbMsg) + '</div>' : '') + '</section>';
+    var waitSec = st.wait.length ? '<div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line2);padding-top:12px"><span class="lbl">계약금 대기 ' + st.wait.length + '곳 <span class="muted" style="font-weight:400">· 계약금이 들어왔는데 ERP에 아직 없는 현장이에요. 현장관리에 같은 이름으로 등록되면 자동으로 초록이 되고, 이름이 다르면 눌러서 매칭하세요.</span></span>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:160px;overflow-y:auto;padding:2px">' + st.wait.map(function (b) {
+        return '<button class="mchip" data-mm="' + h(b.name) + '" style="' + MCOL.wait + '">' + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>';
+      }).join('') + '</div></div>' : '';
+    return '<section class="card sec">' + head + '<span class="muted">ERP ' + src + ' 기준</span>' + warn + mwarn +
       (st.bad.length ? bulkBar(st.bad) +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:' + (S.msel ? 320 : 190) + 'px;overflow-y:auto;padding:2px">' + st.bad.map(function (b) {
           var on = S.msel && S.msel[b.name];
           return S.msel
             ? '<button class="mchip" data-mpick="' + h(b.name) + '" aria-pressed="' + (on ? 'true' : 'false') + '" style="' + (on ? 'background:#0F1B2D;color:#FFF' : MCOL.bad) + '">' + (on ? '✓ ' : '') + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>'
             : '<button class="mchip" data-mm="' + h(b.name) + '" style="' + MCOL.bad + '">' + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>';
-        }).join('') + '</div>' : '<span class="muted">모든 발전소가 ERP와 매칭되어 있습니다.</span>' + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '')) + '</section>';
+        }).join('') + '</div>' : '<span class="muted">미매칭 발전소가 없습니다.</span>' + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '')) + waitSec + '</section>';
   }
-  /* 여러 개 한꺼번에 '발전소 아님' */
+  /* 여러 개 한꺼번에 X 표시 */
   S.msel = null; S.mbBusy = false; S.mbMsg = '';
+  S.mopen = false; try { S.mopen = localStorage.getItem('fs-match-open') === '1'; } catch (e) {}
   function bulkBar(bad) {
     if (!S.msel) return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span class="muted">빨간 발전소를 누르면 ERP 목록에서 골라 매칭할 수 있어요. 많이 나오는 순서입니다.</span>' +
-      '<button class="tab" data-mbulk="start">여러 개 골라서 발전소 아님</button></div>' + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '');
+      '<button class="tab" data-mbulk="start">여러 개 골라서 X 표시</button></div>' + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '');
     var n = Object.keys(S.msel).length;
-    return '<div class="warn" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span><b>' + n + '곳 선택됨</b> · 발전소가 아닌 것들을 눌러서 고르세요.</span><span style="display:flex;flex-wrap:wrap;gap:6px">' +
+    return '<div class="warn" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span><b>' + n + '곳 선택됨</b> · X로 표시할 것들을 눌러서 고르세요.</span><span style="display:flex;flex-wrap:wrap;gap:6px">' +
       '<button class="tab" data-mbulk="all">전체 선택</button><button class="tab" data-mbulk="none"' + (n ? '' : ' disabled') + '>선택 해제</button>' +
       '<button class="tab" data-mbulk="cancel">취소</button>' +
-      '<button class="tab on" data-mbulk="save"' + (n && !S.mbBusy ? '' : ' disabled') + '>' + (S.mbBusy ? '저장 중…' : n + '곳 발전소 아님으로 저장') + '</button></span></div>' +
+      '<button class="tab on" data-mbulk="save"' + (n && !S.mbBusy ? '' : ' disabled') + '>' + (S.mbBusy ? '저장 중…' : n + '곳 X로 저장') + '</button></span></div>' +
       (S.mbMsg ? '<div class="err">' + h(S.mbMsg) + '</div>' : '');
   }
   function bulkSave() {
@@ -550,13 +568,14 @@ body.embed main{padding:20px 24px 32px}
         S.mbBusy = false;
         if (!r.ok) throw new Error(r.error || '알 수 없는 오류');
         if (!r.matches) throw new Error('Apps Script가 아직 예전 버전입니다. 새 코드로 배포해 주세요.');
-        S.matches = r.matches; resetMatchCache(); S.msel = null; S.mbMsg = names.length + '곳을 발전소 아님으로 저장했습니다. 되돌리려면 목록의 회색 발전소를 눌러 \'직접 매칭 해제\'를 누르세요.'; render();
+        S.matches = r.matches; resetMatchCache(); S.msel = null; S.mbMsg = names.length + '곳을 X로 저장했습니다. 되돌리려면 목록의 회색 발전소를 눌러 \'직접 매칭 해제\'를 누르세요.'; render();
       })
       .catch(function (e) { S.mbBusy = false; S.mbMsg = '저장 실패: ' + ((e && e.message) || e); render(); });
   }
   document.addEventListener('click', function (e) {
     var t = e.target.closest('button'); if (!t) return;
     if (t.dataset.mpick !== undefined && S.msel) { var n = t.dataset.mpick; if (S.msel[n]) delete S.msel[n]; else S.msel[n] = 1; var sc = t.parentNode.scrollTop; render(); var box = document.querySelector('[data-mpick]'); if (box) box.parentNode.scrollTop = sc; }
+    else if (t.dataset.mopen) { S.mopen = !S.mopen; if (!S.mopen) S.msel = null; try { localStorage.setItem('fs-match-open', S.mopen ? '1' : '0'); } catch (e2) {} render(); }
     else if (t.dataset.mbulk === 'start') { S.msel = {}; S.mbMsg = ''; render(); }
     else if (t.dataset.mbulk === 'cancel') { S.msel = null; S.mbMsg = ''; render(); }
     else if (t.dataset.mbulk === 'none') { S.msel = {}; render(); }
@@ -600,7 +619,7 @@ body.embed main{padding:20px 24px 32px}
     if (!w) { w = document.createElement('div'); w.id = 'mmWrap'; w.className = 'mm-bg'; document.body.appendChild(w); }
     var r = resolve(m.name), cnt = S.sheets.ledger.filter(function (x) { return String(x.site || '').trim() === m.name; }).length;
     var cur = r.state === 'ok' ? '<span class="chip" style="' + MCOL.ok + '">' + (r.manual ? '직접 매칭됨' : '자동 매칭됨') + '</span> ' + h(r.hits.map(function (x) { return x.name; }).join(', '))
-      : r.state === 'none' ? '<span class="chip" style="' + MCOL.none + '">발전소 아님</span>'
+      : r.state === 'none' ? '<span class="chip" style="' + MCOL.none + '">X</span>'
       : '<span class="chip" style="' + MCOL.bad + '">미매칭</span>' + (r.lost ? ' ERP에서 사라짐: ' + h(r.lost.join(', ')) : '');
     var siteN = S.sites ? S.sites.items.length : 0;
     w.innerHTML = '<div class="mm card" role="dialog" aria-modal="true" aria-label="발전소 매칭">' +
@@ -618,7 +637,7 @@ body.embed main{padding:20px 24px 32px}
       (S.mmMsg ? '<div class="' + (/실패|오류|않|없/.test(S.mmMsg) ? 'err' : 'warn') + '">' + h(S.mmMsg) + '</div>' : '') +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end">' +
       (r.manual ? '<button class="tab" data-mact="clear"' + (S.mmBusy ? ' disabled' : '') + '>직접 매칭 해제</button>' : '') +
-      '<button class="tab" data-mact="none"' + (S.mmBusy ? ' disabled' : '') + '>발전소 아님</button>' +
+      '<button class="tab" data-mact="none"' + (S.mmBusy ? ' disabled' : '') + '>X로 표시</button>' +
       '<button class="tab on" data-mact="save"' + (S.mmBusy || !m.sel.length ? ' disabled' : '') + '>' + (S.mmBusy ? '저장 중…' : '매칭 저장') + '</button></div></div>';
     renderMatchList();
   }
