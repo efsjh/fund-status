@@ -160,7 +160,7 @@ body.embed main{padding:20px 24px 32px}
     if (!getKey()) { if (EMBED && !keyWait) { askErpKey(); return; } showGate(''); return; }
     call('getBonds', function (r) { S.bonds = r; resetMatchCache(); });
     call('getFund', function (r) { S.fund = r; S.fundIdx = null; });
-    call('getSheets', function (r) { S.sheets = r; });
+    call('getSheets', function (r) { S.sheets = r; resetMatchCache(); });
     call('getSites', function (r) { S.sites = r; resetMatchCache(); });
     call('getMatches', function (r) { S.matches = r; resetMatchCache(); });
   }
@@ -561,6 +561,7 @@ body.embed main{padding:20px 24px 32px}
   }
   function bulkSave() {
     var names = Object.keys(S.msel || {}); if (!names.length) return;
+    if (!window.confirm(names.length + '곳을 X로 저장합니다.\n원본 일자별 기록 · 입금내역 · 기자재 지급내역의 발전소명도 X로 바뀝니다. 계속할까요?')) return;
     S.mbBusy = true; S.mbMsg = ''; render();
     fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: getKey(), action: 'saveMatchBatch', items: names.map(function (n) { return { name: n, none: true }; }) }) })
       .then(function (r) { return r.json(); })
@@ -568,7 +569,7 @@ body.embed main{padding:20px 24px 32px}
         S.mbBusy = false;
         if (!r.ok) throw new Error(r.error || '알 수 없는 오류');
         if (!r.matches) throw new Error('Apps Script가 아직 예전 버전입니다. 새 코드로 배포해 주세요.');
-        S.matches = r.matches; resetMatchCache(); S.msel = null; S.mbMsg = names.length + '곳을 X로 저장했습니다. 되돌리려면 목록의 회색 발전소를 눌러 \'직접 매칭 해제\'를 누르세요.'; render();
+        S.matches = r.matches; resetMatchCache(); S.msel = null; S.mbMsg = names.length + '곳을 X로 저장했습니다. ' + renamedMsg(r); render(); afterRename(r);
       })
       .catch(function (e) { S.mbBusy = false; S.mbMsg = '저장 실패: ' + ((e && e.message) || e); render(); });
   }
@@ -635,22 +636,44 @@ body.embed main{padding:20px 24px 32px}
         return '<span class="chip" style="' + MCOL.ok + ';display:inline-flex;align-items:center;gap:4px">' + h(s.src) + ' · ' + h(s.name) + '<button class="mx" data-mdel="' + i + '" aria-label="' + h(s.name) + ' 빼기">×</button></span>';
       }).join('') || '<span class="muted">아직 고른 발전소가 없습니다.</span>') + '</div></div>' +
       (S.mmMsg ? '<div class="' + (/실패|오류|않|없/.test(S.mmMsg) ? 'err' : 'warn') + '">' + h(S.mmMsg) + '</div>' : '') +
+      '<div class="muted" style="font-size:12px;line-height:1.6">저장하면 원본 일자별 기록 · 입금내역 · 기자재 지급내역의 발전소명 <b>' + h(m.name) + '</b>이(가) ' +
+        (function () { var c = collapseTargets(m.sel), nm = []; c.forEach(function (x) { if (nm.indexOf(x.name) < 0) nm.push(x.name); }); return nm.length === 1 ? '<b>' + h(nm[0]) + '</b>(으)로 바뀝니다. X로 표시하면 X로 바뀝니다.' : nm.length > 1 ? '그대로 유지됩니다 (ERP 발전소가 여러 곳). X로 표시하면 X로 바뀝니다.' : 'X로 표시하면 X로 바뀝니다.'; })() + '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end">' +
       (r.manual ? '<button class="tab" data-mact="clear"' + (S.mmBusy ? ' disabled' : '') + '>직접 매칭 해제</button>' : '') +
       '<button class="tab" data-mact="none"' + (S.mmBusy ? ' disabled' : '') + '>X로 표시</button>' +
       '<button class="tab on" data-mact="save"' + (S.mmBusy || !m.sel.length ? ' disabled' : '') + '>' + (S.mmBusy ? '저장 중…' : '매칭 저장') + '</button></div></div>';
     renderMatchList();
   }
+  function collapseTargets(sel) {
+    var out = [];
+    (sel || []).forEach(function (t) {
+      var it = byId(t.src, t.id), mb = !(it && it.merged) ? mergedBond(it ? it.name : t.name) : null;
+      var e = mb ? { src: '채권', id: mb.id, name: mb.name } : { src: t.src, id: t.id, name: it ? it.name : t.name };
+      if (!out.some(function (x) { return x.src === e.src && x.id === e.id; })) out.push(e);
+    });
+    return out;
+  }
+  function renamedMsg(r) {
+    var n = r && r.result && r.result.renamed; if (!n) return '';
+    var tot = (n.orig || 0) + (n.inc || 0) + (n.exp || 0);
+    var kept = (r.result.kept || []).length ? ' · ' + r.result.kept.join(', ') + '은(는) ERP 발전소가 여러 곳이라 원본 이름을 그대로 뒀어요.' : '';
+    return (tot ? '원본 일자별 기록 ' + n.orig + '건 · 입금내역 ' + n.inc + '건 · 기자재 지급내역 ' + n.exp + '건의 발전소명을 바꿨어요. (일자별 기록 보관에도 같이 반영됩니다)' : '') + kept;
+  }
+  function afterRename(r) {
+    var n = r && r.result && r.result.renamed;
+    if (n && (n.orig || n.inc || n.exp)) { call('getSheets', function (x) { S.sheets = x; resetMatchCache(); }); call('getFund', function (x) { S.fund = x; S.fundIdx = null; }); }
+  }
   function saveMatch(body) {
     S.mmBusy = true; S.mmMsg = ''; renderMatch();
     body.key = getKey(); body.action = 'saveMatch'; body.name = S.mm.name;
+    if (body.targets) body.targets = collapseTargets(body.targets);
     fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json(); })
       .then(function (r) {
         S.mmBusy = false;
         if (!r.ok) throw new Error(r.error || '알 수 없는 오류');
         if (!r.matches) throw new Error('Apps Script가 아직 예전 버전입니다. 새 코드로 배포해 주세요.');
-        S.matches = r.matches; S.err.getMatches = ''; resetMatchCache(); closeMatch(); render();
+        S.matches = r.matches; S.err.getMatches = ''; resetMatchCache(); S.mbMsg = renamedMsg(r); closeMatch(); render(); afterRename(r);
       })
       .catch(function (e) { S.mmBusy = false; S.mmMsg = '저장 실패: ' + ((e && e.message) || e); renderMatch(); });
   }
