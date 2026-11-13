@@ -470,7 +470,7 @@ body.embed main{padding:20px 24px 32px}
   }
 
   S.sites = null; S.matches = null; S.midx = null; S.mres = null; S.mf = '전체'; S.mm = null; S.mmMsg = ''; S.mmBusy = false;
-  function resetMatchCache() { S.midx = null; S.mres = null; S.depo = null; }
+  function resetMatchCache() { S.midx = null; S.mres = null; S.depo = null; S.erpL = null; S.sugC = null; }
   function getIdx() { return S.midx || (S.midx = erpIndex(items(), S.sites && S.sites.items)); }
   function byId(src, id) {
     var L = src === '현장' ? (S.sites && S.sites.items) : items();
@@ -545,19 +545,142 @@ body.embed main{padding:20px 24px 32px}
       '<span class="chip" style="' + MCOL.wait + '">계약금 대기 ' + st.wait.length + '</span>' +
       '<span class="chip" style="' + MCOL.none + '">X ' + st.none.length + '</span></span></button>';
     if (!S.mopen) return '<section class="card" style="padding:14px 22px">' + head + (S.mbMsg ? '<div class="warn" style="margin-top:10px">' + h(S.mbMsg) + '</div>' : '') + '</section>';
-    var waitSec = st.wait.length ? '<div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line2);padding-top:12px"><span class="lbl">계약금 대기 ' + st.wait.length + '곳 <span class="muted" style="font-weight:400">· 계약금이 들어왔는데 ERP에 아직 없는 현장이에요. 현장관리에 같은 이름으로 등록되면 자동으로 초록이 되고, 이름이 다르면 눌러서 매칭하세요.</span></span>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:160px;overflow-y:auto;padding:2px">' + st.wait.map(function (b) {
-        return '<button class="mchip" data-mm="' + h(b.name) + '" style="' + MCOL.wait + '">' + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>';
-      }).join('') + '</div></div>' : '';
-    return '<section class="card sec">' + head + '<span class="muted">ERP ' + src + ' 기준</span>' + warn + mwarn +
-      (st.bad.length ? bulkBar(st.bad) +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:' + (S.msel ? 320 : 190) + 'px;overflow-y:auto;padding:2px">' + st.bad.map(function (b) {
-          var on = S.msel && S.msel[b.name];
-          return S.msel
-            ? '<button class="mchip" data-mpick="' + h(b.name) + '" aria-pressed="' + (on ? 'true' : 'false') + '" style="' + (on ? 'background:#0F1B2D;color:#FFF' : MCOL.bad) + '">' + (on ? '✓ ' : '') + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>'
-            : '<button class="mchip" data-mm="' + h(b.name) + '" style="' + MCOL.bad + '">' + h(b.name) + ' <span class="num" style="font-weight:500;opacity:.8">' + b.cnt + '</span></button>';
-        }).join('') + '</div>' : '<span class="muted">미매칭 발전소가 없습니다.</span>' + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '')) + waitSec + '</section>';
+    return '<section class="card sec">' + head + '<span class="muted">ERP ' + src + ' 기준</span>' + warn + mwarn + bulkTable(st) + '</section>';
   }
+
+  /* ---------- 한꺼번에 매칭 (필터 · 정렬 · 추천 → 여러 곳 한 번에 저장) ---------- */
+  S.bm = { q: '', grp: 'bad', sort: 'cnt', sug: false, val: {}, on: {}, busy: false };
+  function erpList() {
+    if (S.erpL) return S.erpL;
+    var idx = getIdx(), L = [];
+    items().forEach(function (it) {
+      L.push({ src: '채권', id: it.id, name: it.name, status: it.status, merged: it.merged, ks: [mkey(it.name), mkey(it.sheetName)].concat((it.mergedMembers || []).map(mkey)).filter(Boolean) });
+    });
+    ((S.sites && S.sites.items) || []).forEach(function (it) {
+      if (inBonds(idx, it.name)) return;                       // 채권관리에 있는(병합 포함) 현장은 채권 쪽만
+      L.push({ src: '현장', id: it.id, name: it.name, status: it.status, ks: [mkey(it.name)] });
+    });
+    return (S.erpL = L);
+  }
+  function suggest(name) {
+    S.sugC = S.sugC || {};
+    if (S.sugC[name]) return S.sugC[name];
+    var k = mkey(name), base = k.replace(/[\d~,]+(호|공장)?$/, '') || k, out = [];
+    if (base.length < 2) base = k;
+    erpList().forEach(function (e) {
+      var best = 9;
+      e.ks.forEach(function (x) {
+        var sc = x === k ? 0 : x.indexOf(k) === 0 || k.indexOf(x) === 0 ? 1 : x.indexOf(base) === 0 ? 2 : (base.length >= 3 && x.indexOf(base) >= 0) ? 3 : (x.length >= 3 && k.indexOf(x) >= 0) ? 4 : 9;
+        if (sc < best) best = sc;
+      });
+      if (best < 9) out.push({ e: e, sc: best });
+    });
+    out.sort(function (a, b) { return a.sc - b.sc || (a.e.src === b.e.src ? 0 : a.e.src === '채권' ? -1 : 1) || (a.e.name.length - b.e.name.length); });
+    return (S.sugC[name] = out.slice(0, 10));
+  }
+  function bmRows(st) {
+    var B = S.bm, q = mkey(B.q), L = (B.grp === 'wait' ? st.wait : B.grp === 'all' ? st.bad.concat(st.wait) : st.bad).slice();
+    L = L.filter(function (r) { return !q || mkey(r.name).indexOf(q) >= 0; });
+    L.forEach(function (r) { r.sug = suggest(r.name); r.wait = st.wait.indexOf(r) >= 0; });
+    if (B.sug) L = L.filter(function (r) { return r.sug.length; });
+    L.sort(B.sort === 'name' ? function (a, b) { return a.name < b.name ? -1 : 1; }
+      : B.sort === 'sug' ? function (a, b) { return (a.sug.length ? (a.sug[0].sc) : 9) - (b.sug.length ? b.sug[0].sc : 9) || b.cnt - a.cnt; }
+      : function (a, b) { return b.cnt - a.cnt; });
+    return L;
+  }
+  function bmVal(r) {   // 아직 고르지 않았으면: 추천이 하나뿐이거나 이름이 거의 같으면 그걸 기본으로
+    var B = S.bm;
+    if (B.val[r.name] !== undefined) return B.val[r.name];
+    var s = r.sug;
+    var sure = s.length && (s.length === 1 || s[0].sc === 0 || (s[0].sc <= 1 && s[1].sc > 1));
+    return sure ? s[0].e.src + '|' + s[0].e.id : '';
+  }
+  function bulkTable(st) {
+    var B = S.bm, rows = bmRows(st), nOn = 0;
+    rows.forEach(function (r) { if (B.on[r.name] && bmVal(r)) nOn++; });
+    var g = 'grid-template-columns:34px minmax(120px,1fr) 56px minmax(220px,1.4fr) 32px';
+    var opt = function (v, t, cur) { return '<option value="' + h(v) + '"' + (v === cur ? ' selected' : '') + '>' + h(t) + '</option>'; };
+    var bar = '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+        [['bad', '미매칭 ' + st.bad.length], ['wait', '계약금 대기 ' + st.wait.length], ['all', '둘 다']].map(function (x) { return '<button class="tab' + (B.grp === x[0] ? ' on' : '') + '" data-bmgrp="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">' +
+        '<label class="box" style="flex:0 1 200px;min-height:36px;padding-right:10px"><span class="sr">발전소 이름 필터</span><input id="bmQ" type="search" placeholder="이름 필터" value="' + h(B.q) + '" autocomplete="off"></label>' +
+        '<select class="sel" id="bmSort" style="min-height:36px" aria-label="정렬">' + opt('cnt', '건수 많은 순', B.sort) + opt('sug', '추천 잘 맞는 순', B.sort) + opt('name', '이름 순', B.sort) + '</select>' +
+        '<button class="tab' + (B.sug ? ' on' : '') + '" data-bmact="sug">추천 있는 것만</button></div></div>';
+    var tools = '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:10px;background:#F3F5F8">' +
+      '<span style="font-size:13px"><b>' + nOn + '곳</b> 선택됨 <span class="muted">· 오른쪽에서 ERP 발전소(또는 X)를 고르고 체크한 뒤 한 번에 저장하세요.</span></span>' +
+      '<span style="display:flex;flex-wrap:wrap;gap:6px">' +
+        '<button class="tab" data-bmact="pickSug">추천 있는 것 모두 체크</button>' +
+        '<button class="tab" data-bmact="allX">보이는 것 모두 X로</button>' +
+        '<button class="tab" data-bmact="clear"' + (nOn ? '' : ' disabled') + '>체크 해제</button>' +
+        '<button class="tab on" data-bmact="save"' + (nOn && !B.busy ? '' : ' disabled') + '>' + (B.busy ? '저장 중…' : nOn + '곳 저장') + '</button></span></div>';
+    var list = rows.slice(0, 300).map(function (r) {
+      var v = bmVal(r), on = !!B.on[r.name] && !!v;
+      var opts = opt('', '— 고르기 —', v) + opt('X', 'X (발전소 아님)', v) +
+        r.sug.map(function (x) { return opt(x.e.src + '|' + x.e.id, x.e.name + ' · ' + x.e.src + (x.e.status ? ' · ' + x.e.status : '') + (x.e.merged ? ' · 병합' : ''), v); }).join('') +
+        (v && v !== 'X' && !r.sug.some(function (x) { return x.e.src + '|' + x.e.id === v; }) ? opt(v, (B.lbl && B.lbl[v]) || v, v) : '');
+      return '<div class="row" style="' + g + ';font-size:13px' + (on ? ';background:#F2FAFA' : '') + '">' +
+        '<span><input type="checkbox" data-bmon="' + h(r.name) + '"' + (on ? ' checked' : '') + (v ? '' : ' disabled') + ' aria-label="' + h(r.name) + ' 선택" style="width:18px;height:18px"></span>' +
+        '<span style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0"><span class="chip" style="' + (r.wait ? MCOL.wait : MCOL.bad) + '">' + h(r.name) + '</span></span>' +
+        '<span class="num muted" style="text-align:right">' + r.cnt + '건</span>' +
+        '<span style="min-width:0"><select class="sel" data-bmsel="' + h(r.name) + '" style="width:100%;min-height:36px;font-size:13px' + (v ? ';border-color:#12A3A8' : '') + '" aria-label="' + h(r.name) + ' 매칭할 ERP 발전소">' + opts + '</select></span>' +
+        '<button class="le-btn" data-mm="' + h(r.name) + '" aria-label="' + h(r.name) + ' 직접 검색해서 매칭" title="목록에 없으면 직접 검색"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button></div>';
+    }).join('');
+    return bar + tools + (S.mbMsg ? '<div class="warn">' + h(S.mbMsg) + '</div>' : '') +
+      '<div class="scroll" style="max-height:460px;overflow-y:auto"><div style="min-width:560px">' +
+      '<div class="head" style="' + g + ';position:sticky;top:0;z-index:1"><span></span><span class="th">일자별 기록 발전소명</span><span class="th r">건수</span><span class="th">매칭할 ERP 발전소 (추천)</span><span></span></div>' +
+      (list || '<div class="muted" style="padding:20px 8px">조건에 맞는 발전소가 없습니다.</div>') +
+      (rows.length > 300 ? '<div class="muted num" style="padding:8px">외 ' + (rows.length - 300) + '곳 · 필터로 좁혀 주세요</div>' : '') + '</div></div>';
+  }
+  function bmSave() {
+    var B = S.bm, st = matchStats(S.sheets.ledger), rows = bmRows(st), items_ = [];
+    rows.forEach(function (r) {
+      var v = bmVal(r); if (!B.on[r.name] || !v) return;
+      if (v === 'X') { items_.push({ name: r.name, none: true }); return; }
+      var p = v.split('|'), it = byId(p[0], p[1]);
+      items_.push({ name: r.name, targets: collapseTargets([{ src: p[0], id: p[1], name: it ? it.name : '' }]) });
+    });
+    if (!items_.length) return;
+    var nx = items_.filter(function (x) { return x.none; }).length;
+    if (!window.confirm(items_.length + '곳을 저장합니다' + (nx ? ' (X ' + nx + '곳 포함)' : '') + '.\n원본 일자별 기록 · 입금내역 · 기자재 지급내역의 발전소명도 고른 ERP 이름(또는 X)으로 바뀝니다. 계속할까요?')) return;
+    B.busy = true; S.mbMsg = ''; render();
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: getKey(), action: 'saveMatchBatch', items: items_ }) })
+      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        B.busy = false;
+        if (!r.ok) throw new Error(r.error || '알 수 없는 오류');
+        if (!r.matches) throw new Error('Apps Script가 아직 예전 버전입니다.');
+        S.matches = r.matches; resetMatchCache(); B.on = {}; B.val = {};
+        S.mbMsg = items_.length + '곳을 저장했습니다. ' + renamedMsg(r); render(); afterRename(r);
+      })
+      .catch(function (e) { B.busy = false; S.mbMsg = '저장 실패: ' + ((e && e.message) || e); render(); });
+  }
+  function bmKeepScroll(fn) {
+    var sc = document.querySelector('[data-bmsel]'), box = sc ? sc.closest('.scroll') : null, top = box ? box.scrollTop : 0;
+    fn(); var sc2 = document.querySelector('[data-bmsel]'), box2 = sc2 ? sc2.closest('.scroll') : null; if (box2) box2.scrollTop = top;
+  }
+  document.addEventListener('change', function (e) {
+    var t = e.target, B = S.bm;
+    if (t.dataset && t.dataset.bmsel !== undefined) { B.val[t.dataset.bmsel] = t.value; B.on[t.dataset.bmsel] = !!t.value; bmKeepScroll(render); }
+    else if (t.dataset && t.dataset.bmon !== undefined) { B.on[t.dataset.bmon] = t.checked; bmKeepScroll(render); }
+    else if (t.id === 'bmSort') { B.sort = t.value; render(); }
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'bmQ') { S.bm.q = e.target.value; clearTimeout(S.bmT); S.bmT = setTimeout(function () { render(); var q = $('bmQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 250); }
+  });
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button'); if (!t) return;
+    var B = S.bm, a = t.dataset.bmact;
+    if (t.dataset.bmgrp) { B.grp = t.dataset.bmgrp; render(); return; }
+    if (!a) return;
+    var rows = function () { return bmRows(matchStats(S.sheets.ledger)); };
+    if (a === 'sug') { B.sug = !B.sug; render(); }
+    else if (a === 'pickSug') { rows().forEach(function (r) { if (bmVal(r) && bmVal(r) !== 'X') B.on[r.name] = true; else if (r.sug.length) { B.val[r.name] = r.sug[0].e.src + '|' + r.sug[0].e.id; B.on[r.name] = true; } }); bmKeepScroll(render); }
+    else if (a === 'allX') { rows().forEach(function (r) { B.val[r.name] = 'X'; B.on[r.name] = true; }); bmKeepScroll(render); }
+    else if (a === 'clear') { B.on = {}; bmKeepScroll(render); }
+    else if (a === 'save') bmSave();
+  });
+
   /* 여러 개 한꺼번에 X 표시 */
   S.msel = null; S.mbBusy = false; S.mbMsg = '';
   S.mopen = false; try { S.mopen = localStorage.getItem('fs-match-open') === '1'; } catch (e) {}
