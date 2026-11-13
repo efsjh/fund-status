@@ -71,6 +71,12 @@ select.sel{min-height:44px;padding:0 10px;border:1px solid #C9D2DE;border-radius
 .mm-list{max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
 .mx{border:0;background:transparent;color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
 .tab:disabled{opacity:.5;cursor:default}
+.le-btn{width:30px;height:30px;border:0;border-radius:8px;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#8D9BB0}
+.le-btn:hover{background:#EEF2F6;color:var(--ink)}.le-btn:focus-visible{outline:2px solid #12A3A8;outline-offset:1px}
+.le-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.le-grid .box{padding-right:12px}.le-grid input{font-size:15px}
+@media (max-width:520px){.le-grid{grid-template-columns:1fr}}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:60;max-width:min(560px,calc(100% - 32px));background:#0F1B2D;color:#FFF;padding:12px 18px;border-radius:12px;font-size:14px;box-shadow:0 10px 30px rgba(15,27,45,.3)}
 .mtoggle{display:flex;flex-wrap:wrap;align-items:center;gap:10px;width:100%;border:0;background:transparent;padding:4px 0;cursor:pointer;text-align:left;color:var(--ink);font-family:inherit}
 .mtoggle:focus-visible{outline:2px solid #12A3A8;outline-offset:4px;border-radius:6px}
 body.embed aside{display:none}
@@ -281,16 +287,17 @@ body.embed main{padding:20px 24px 32px}
       '<div><span class="lbl">수금액</span><span class="num big" style="color:var(--blue)">' + fmt(incSum) + '</span></div>' +
       '<div style="background:' + (unpaid > 0 ? '#FFF1F2' : unpaid < 0 ? '#FFFBEB' : '#FFF') + '"><span class="lbl">미수금</span><span class="num big" style="color:' + (unpaid > 0 ? 'var(--red)' : unpaid < 0 ? 'var(--amber)' : 'var(--ink)') + '">' + fmt(unpaid) + '</span></div></div>';
 
-    var g1 = 'grid-template-columns:96px 112px 96px 112px 90px minmax(0,1fr)';
+    S.leCtx = site;
+    var g1 = 'grid-template-columns:96px 112px 96px 112px 90px minmax(0,1fr) 32px';
     var n = Math.max(site.inv.length, site.inc.length), rows = '';
     for (var i = 0; i < n; i++) {
       var v = site.inv[i], c = site.inc[i];
-      rows += '<div class="row" style="' + g1 + '"><span class="num">' + (v ? v.d : '') + '</span><span class="num r" style="font-weight:600">' + (v ? fmt(v.a) : '') + '</span><span class="num">' + (c ? c.d : '') + '</span><span class="num r" style="font-weight:600;color:var(--blue)">' + (c ? fmt(c.a) : '') + '</span><span>' + h(c ? c.v : '') + '</span><span style="color:var(--sub2)">' + h(c ? c.m : '') + '</span></div>';
+      rows += '<div class="row" style="' + g1 + '"><span class="num">' + (v ? v.d : '') + '</span><span class="num r" style="font-weight:600">' + (v ? fmt(v.a) : '') + '</span><span class="num">' + (c ? c.d : '') + '</span><span class="num r" style="font-weight:600;color:var(--blue)">' + (c ? fmt(c.a) : '') + '</span><span>' + h(c ? c.v : '') + '</span><span style="color:var(--sub2)">' + h(c ? c.m : '') + '</span>' + (c ? leBtn('inc', i) : '<span></span>') + '</div>';
     }
     var inSec = '<section class="card sec"><div style="display:flex;justify-content:space-between;gap:12px"><h2>입금 및 매출 내역</h2><span class="num muted" style="font-size:12px">계산서 ' + site.inv.length + '건 · 수금 ' + site.inc.length + '건</span></div><div class="scroll"><div style="min-width:640px">' +
-      '<div class="head" style="' + g1 + '"><span class="th">계산서발행일</span><span class="th r">금액(vat포함)</span><span class="th">수금일</span><span class="th r">수금액</span><span class="th">거래처</span><span class="th">비고</span></div>' +
+      '<div class="head" style="' + g1 + '"><span class="th">계산서발행일</span><span class="th r">금액(vat포함)</span><span class="th">수금일</span><span class="th r">수금액</span><span class="th">거래처</span><span class="th">비고</span><span></span></div>' +
       (rows || '<div class="muted" style="padding:20px 8px">등록된 계산서·수금 내역이 없습니다.</div>') +
-      '<div class="row" style="' + g1 + ';border:0;font-weight:700"><span>합계</span><span class="num r">' + fmt(invSum) + '</span><span></span><span class="num r" style="color:var(--blue)">' + fmt(incSum) + '</span><span></span><span></span></div></div></div></section>';
+      '<div class="row" style="' + g1 + ';border:0;font-weight:700"><span>합계</span><span class="num r">' + fmt(invSum) + '</span><span></span><span class="num r" style="color:var(--blue)">' + fmt(incSum) + '</span><span></span><span></span><span></span></div></div></div></section>';
 
     var costs = site.sub + site.module + site.line + site.sales + site.etc, profit = invSum - costs;
     var pct = function (x) { return invSum ? (x / invSum * 100).toFixed(2) + '%' : ''; };
@@ -305,11 +312,11 @@ body.embed main{padding:20px 24px 32px}
       line('하도급', fmt(site.sub), pct(site.sub)) + line('모듈, 인버터', fmt(site.module), pct(site.module)) + line('한전선로비', fmt(site.line), pct(site.line)) +
       line('영업비', fmt(site.sales), pct(site.sales)) + line('보험료 기타비용', fmt(site.etc), pct(site.etc)) + line('영업이익', fmt(profit), pct(profit), 'profit') + '</div></section>';
 
-    var g3 = 'grid-template-columns:96px 112px 120px minmax(0,1fr)';
-    var exp = '<section class="card sec" style="flex:1 1 440px;min-width:0"><div style="display:flex;justify-content:space-between;gap:12px"><h2>기자재 및 지출 내역</h2><span class="num muted" style="font-size:12px">' + site.exp.length + '건</span></div><div class="scroll"><div style="min-width:480px">' +
-      '<div class="head" style="' + g3 + '"><span class="th">지급일</span><span class="th r">지급액</span><span class="th">거래처</span><span class="th">비고</span></div>' +
-      (site.exp.map(function (e) { return '<div class="row" style="' + g3 + '"><span class="num">' + e.d + '</span><span class="num r" style="font-weight:600">' + fmt(e.a) + '</span><span>' + h(e.v) + '</span><span style="color:var(--sub2)">' + h(e.m) + '</span></div>'; }).join('') || '<div class="muted" style="padding:20px 8px">등록된 지출 내역이 없습니다.</div>') +
-      '<div class="row" style="' + g3 + ';border:0;font-weight:700"><span>합계</span><span class="num r" style="color:var(--amber)">' + fmt(expSum) + '</span><span></span><span></span></div></div></div></section>';
+    var g3 = 'grid-template-columns:96px 112px 120px minmax(0,1fr) 32px';
+    var exp = '<section class="card sec" style="flex:1 1 440px;min-width:0"><div style="display:flex;justify-content:space-between;gap:12px"><h2>기자재 및 지출 내역</h2><span class="num muted" style="font-size:12px">' + site.exp.length + '건</span></div><div class="scroll"><div style="min-width:510px">' +
+      '<div class="head" style="' + g3 + '"><span class="th">지급일</span><span class="th r">지급액</span><span class="th">거래처</span><span class="th">비고</span><span></span></div>' +
+      (site.exp.map(function (e, i) { return '<div class="row" style="' + g3 + '"><span class="num">' + e.d + '</span><span class="num r" style="font-weight:600">' + fmt(e.a) + '</span><span>' + h(e.v) + '</span><span style="color:var(--sub2)">' + h(e.m) + '</span>' + leBtn('exp', i) + '</div>'; }).join('') || '<div class="muted" style="padding:20px 8px">등록된 지출 내역이 없습니다.</div>') +
+      '<div class="row" style="' + g3 + ';border:0;font-weight:700"><span>합계</span><span class="num r" style="color:var(--amber)">' + fmt(expSum) + '</span><span></span><span></span><span></span></div></div></div></section>';
 
     return out + '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><div style="flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:20px">' + inSec + pnl + '</div>' + exp + '</div>';
   }
@@ -699,6 +706,105 @@ body.embed main{padding:20px 24px 32px}
   });
   document.addEventListener('input', function (e) { if (e.target.id === 'mmQ' && S.mm) { S.mm.q = e.target.value; renderMatchList(); } });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.mm) closeMatch(); });
+
+
+  /* ---------- 입금 · 지출 한 줄 수정 / 삭제 (원본 일자별 기록 + 입금내역 / 기자재 지급내역 같이) ---------- */
+  S.le = null;
+  function leBtn(kind, i) { if (EMBED) return '<span></span>'; return '<button class="le-btn" data-led="' + kind + '|' + i + '" aria-label="이 내역 수정 · 삭제" title="수정 · 삭제"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>'; }
+  function toast(msg) {
+    var t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+    t.textContent = msg; t.style.display = 'block'; clearTimeout(S.toastT); S.toastT = setTimeout(function () { t.style.display = 'none'; }, 5000);
+  }
+  function openLe(kind, i) {
+    var site = S.leCtx; if (!site) return;
+    var e = site[kind][i]; if (!e) return;
+    S.le = { kind: kind, e: e, site: site.name, f: { d: e.d, a: String(e.a), v: e.v, m: e.m, site: site.name }, busy: false, msg: '', del: false };
+    renderLe(); var a = $('leA'); if (a) a.focus();
+  }
+  function closeLe() { S.le = null; var w = $('leWrap'); if (w) w.remove(); }
+  function leNames() {
+    if (S.leNames) return S.leNames;
+    var seen = {}, out = [];
+    items().forEach(function (it) { if (it.name && !seen[it.name]) { seen[it.name] = 1; out.push(it.name); } });
+    ((S.fund && S.fund.sites) || []).forEach(function (s) { if (s.name && !seen[s.name]) { seen[s.name] = 1; out.push(s.name); } });
+    return (S.leNames = out);
+  }
+  function renderLe() {
+    var L = S.le; if (!L) return;
+    var w = $('leWrap');
+    if (!w) { w = document.createElement('div'); w.id = 'leWrap'; w.className = 'mm-bg'; document.body.appendChild(w); }
+    var inc = L.kind === 'inc', f = L.f, dis = L.busy ? ' disabled' : '';
+    var fld = function (id, lbl, val, attrs) { return '<label class="field"><span>' + lbl + '</span><span class="box"><input id="' + id + '" value="' + h(val) + '"' + (attrs || '') + dis + '></span></label>'; };
+    w.innerHTML = '<div class="mm card" role="dialog" aria-modal="true" aria-label="내역 수정">' +
+      '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div style="display:flex;flex-direction:column;gap:4px"><span class="muted">' + (inc ? '입금내역' : '기자재 지급내역') + ' · ' + h(L.site) + '</span><b style="font-size:20px">' + (inc ? '수금' : '지출') + ' 내역 수정</b></div>' +
+      '<button class="icon-btn" data-lact="close" aria-label="닫기"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+      '<div class="le-grid">' +
+        fld('leD', inc ? '수금일' : '지급일', f.d, ' type="date"') +
+        fld('leA', inc ? '수금액' : '지급액', f.a ? Number(String(f.a).replace(/[^\d\-]/g, '') || 0).toLocaleString('ko-KR') : '', ' inputmode="numeric" autocomplete="off"') +
+        fld('leV', '거래처', f.v, ' autocomplete="off"') +
+        fld('leS', '발전소명', f.site, ' list="leSiteList" autocomplete="off"') +
+      '</div>' +
+      '<label class="field"><span>' + (inc ? '비고' : '내용') + '</span><span class="box" style="padding-right:12px"><input id="leM" value="' + h(f.m) + '" autocomplete="off"' + dis + '></span></label>' +
+      '<datalist id="leSiteList">' + leNames().map(function (n) { return '<option value="' + h(n) + '">'; }).join('') + '</datalist>' +
+      '<div class="muted" style="font-size:12px;line-height:1.6">저장하면 원본 <b>일자별 기록</b>과 <b>' + (inc ? '입금내역' : '기자재 지급내역') + '</b>이 같이 고쳐집니다. (일자별 기록 보관에도 똑같이 보여요) 발전소명을 바꾸면 이 내역은 그 발전소로 옮겨집니다.</div>' +
+      (L.msg ? '<div class="err">' + h(L.msg) + '</div>' : '') +
+      (L.del ? '<div class="err" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between"><span><b>정말 삭제할까요?</b> 원본 일자별 기록과 ' + (inc ? '입금내역' : '기자재 지급내역') + '에서 이 줄이 지워집니다. 되돌릴 수 없어요.</span>' +
+          '<span style="display:flex;gap:6px"><button class="tab" data-lact="nodel"' + dis + '>아니요</button><button class="tab on" data-lact="dodel" style="background:#9F1239;border-color:#9F1239"' + dis + '>' + (L.busy ? '삭제 중…' : '삭제') + '</button></span></div>' : '') +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between">' +
+        '<button class="tab" data-lact="del" style="color:#9F1239;border-color:#F3B7C3"' + dis + '>삭제</button>' +
+        '<span style="display:flex;gap:8px"><button class="tab" data-lact="close"' + dis + '>취소</button><button class="tab on" data-lact="save"' + dis + '>' + (L.busy && !L.del ? '저장 중…' : '저장') + '</button></span></div></div>';
+  }
+  function leRead() {
+    var L = S.le, g = function (id) { var el = $(id); return el ? el.value : ''; };
+    L.f = { d: g('leD'), a: g('leA').replace(/[^\d\-]/g, ''), v: g('leV').trim(), m: g('leM').trim(), site: g('leS').trim() };
+  }
+  function leSubmit(del) {
+    var L = S.le; if (!L || L.busy) return;
+    if (!del) {
+      leRead();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(L.f.d)) { L.msg = '일자를 입력해 주세요.'; renderLe(); return; }
+      if (!Number(L.f.a)) { L.msg = '금액을 입력해 주세요.'; renderLe(); return; }
+      if (!L.f.v) { L.msg = '거래처를 입력해 주세요.'; renderLe(); return; }
+      if (!L.f.site) { L.msg = '발전소명을 입력해 주세요. (발전소가 아니면 X)'; renderLe(); return; }
+    }
+    L.busy = true; L.msg = ''; renderLe();
+    var body = { key: getKey(), action: 'editLedger', sheet: L.kind, row: L.e.r, old: { site: L.site, d: L.e.d, a: L.e.a, v: L.e.v, m: L.e.m } };
+    if (del) body.del = true; else body['new'] = { site: L.f.site, d: L.f.d, a: Number(L.f.a), v: L.f.v, m: L.f.m };
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.error || '알 수 없는 오류');
+        if (!r.result) throw new Error('Apps Script가 아직 예전 버전입니다. 새 코드로 배포해 주세요.');
+        var moved = !del && L.f.site !== L.site;
+        closeLe();
+        toast(r.result.unchanged ? '바뀐 내용이 없습니다.' : del ? '삭제했습니다. 원본 일자별 기록에서도 지웠어요.' : '저장했습니다. 원본 일자별 기록에도 반영했어요.' + (moved ? ' (' + L.f.site + '(으)로 옮김)' : ''));
+        if (!r.result.unchanged) {
+          call('getFund', function (x) { S.fund = x; S.fundIdx = null; S.leNames = null; });
+          call('getSheets', function (x) { S.sheets = x; resetMatchCache(); });
+        }
+      })
+      .catch(function (e) { if (!S.le) return; S.le.busy = false; S.le.msg = (del ? '삭제' : '저장') + ' 실패: ' + ((e && e.message) || e); renderLe(); });
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.id === 'leWrap' && S.le && !S.le.busy) { closeLe(); return; }
+    var t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.led) { var p = t.dataset.led.split('|'); openLe(p[0], +p[1]); return; }
+    if (!S.le) return;
+    var a = t.dataset.lact;
+    if (a === 'close') closeLe();
+    else if (a === 'save') leSubmit(false);
+    else if (a === 'del') { leRead(); S.le.del = true; S.le.msg = ''; renderLe(); }
+    else if (a === 'nodel') { S.le.del = false; renderLe(); }
+    else if (a === 'dodel') leSubmit(true);
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'leA') { var v = e.target.value.replace(/[^\d]/g, ''); e.target.value = v ? Number(v).toLocaleString('ko-KR') : ''; }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!S.le) return;
+    if (e.key === 'Escape' && !S.le.busy) closeLe();
+    else if (e.key === 'Enter' && e.target.closest && e.target.closest('#leWrap') && e.target.tagName === 'INPUT') { e.preventDefault(); leSubmit(false); }
+  });
 
   /* ---------- 이벤트 ---------- */
   document.addEventListener('click', function (e) {
