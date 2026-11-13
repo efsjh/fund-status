@@ -299,23 +299,28 @@ body.embed main{padding:20px 24px 32px}
       (rows || '<div class="muted" style="padding:20px 8px">등록된 계산서·수금 내역이 없습니다.</div>') +
       '<div class="row" style="' + g1 + ';border:0;font-weight:700"><span>합계</span><span class="num r">' + fmt(invSum) + '</span><span></span><span class="num r" style="color:var(--blue)">' + fmt(incSum) + '</span><span></span><span></span><span></span></div></div></div></section>';
 
-    var costs = site.sub + site.module + site.line + site.sales + site.etc, profit = invSum - costs;
-    var pct = function (x) { return invSum ? (x / invSum * 100).toFixed(2) + '%' : ''; };
+    // 최종 손익: 매출 = ERP 계약금액(세금계산서 발행 기준), 원가 = 아래 '기자재 및 지출 내역'을 비고 단어로 나눠 합계
+    var rev = (sel.contractAmount || 0) + (sel.extraWork || 0), revSrc = 'ERP';
+    if (!rev) { rev = invSum; revSrc = '계산서'; }
+    var cs = costSplit(site.exp), costs = cs.total, profit = rev - costs;
+    var pct = function (x) { return rev ? (x / rev * 100).toFixed(2) + '%' : ''; };
     var g2 = 'grid-template-columns:minmax(0,1fr) 160px 90px;font-size:14px';
     var line = function (l, a, p, kind) {
       return '<div class="row" style="' + g2 + (kind === 'profit' ? ';background:#E6F5F6;border-radius:8px;border:0;margin-top:6px' : '') + '"><span style="font-weight:' + (kind ? 700 : 400) + (kind === 'profit' ? ';color:#084F57' : '') + '">' + l + '</span><span class="num r" style="font-weight:' + (kind ? 700 : 500) + (kind === 'profit' ? ';color:' + (profit < 0 ? 'var(--amber)' : '#084F57') : '') + '">' + a + '</span><span class="num r" style="font-size:13px;color:var(--sub2)">' + p + '</span></div>';
     };
+    var revLbl = '계약금액' + (revSrc === 'ERP' ? (sel.extraWork ? ' <span class="muted" style="font-weight:400">(ERP · 추가공사 포함)</span>' : ' <span class="muted" style="font-weight:400">(ERP)</span>') : ' <span class="muted" style="font-weight:400">(ERP에 없어 계산서 발행 합계)</span>');
     var pnl = '<section class="card sec"><div style="display:flex;justify-content:space-between;gap:12px"><h2>최종 손익현황 <span style="font-weight:500;color:var(--sub);font-size:14px">(원가·순이익)</span></h2><span class="lbl">' + h(site.name) + '</span></div>' +
-      (site.extra ? '<div class="warn">현장관리현황 시트에 등록되지 않은 발전소라 원가·손익 항목이 없습니다.</div>' : '') +
       '<div><div class="head" style="grid-template-columns:minmax(0,1fr) 160px 90px"><span class="th">구분</span><span class="th r">금액</span><span class="th r">비율</span></div>' +
-      line('계약금액', fmt(invSum), '', 'head') + line('발전용량(kW)', site.cap ? site.cap.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) + ' kW' : '—', '', 'head') +
-      line('하도급', fmt(site.sub), pct(site.sub)) + line('모듈, 인버터', fmt(site.module), pct(site.module)) + line('한전선로비', fmt(site.line), pct(site.line)) +
-      line('영업비', fmt(site.sales), pct(site.sales)) + line('보험료 기타비용', fmt(site.etc), pct(site.etc)) + line('영업이익', fmt(profit), pct(profit), 'profit') + '</div></section>';
+      line(revLbl, fmt(rev), '', 'head') + line('발전용량(kW)', site.cap ? site.cap.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) + ' kW' : '—', '', 'head') +
+      COST_CATS.map(function (c) { var v = cs.sum[c.k]; return line(h(c.k) + (cs.cnt[c.k] ? ' <span class="muted num" style="font-weight:400">' + cs.cnt[c.k] + '건</span>' : ''), fmt(v), pct(v)); }).join('') +
+      line('원가 합계', fmt(costs), pct(costs), 'head') + line('영업이익', fmt(profit), pct(profit), 'profit') + '</div>' +
+      costCheck(cs, site.exp, expSum) +
+      '<span class="muted" style="font-size:12px;line-height:1.6">원가는 오른쪽 \'기자재 및 지출 내역\'의 비고·거래처 단어로 나눠 더한 값이에요. 각 줄의 분류는 지출 내역의 작은 표시로 확인할 수 있어요.</span></section>';
 
     var g3 = 'grid-template-columns:96px 112px 120px minmax(0,1fr) 32px';
     var exp = '<section class="card sec" style="flex:1 1 440px;min-width:0"><div style="display:flex;justify-content:space-between;gap:12px"><h2>기자재 및 지출 내역</h2><span class="num muted" style="font-size:12px">' + site.exp.length + '건</span></div><div class="scroll"><div style="min-width:510px">' +
       '<div class="head" style="' + g3 + '"><span class="th">지급일</span><span class="th r">지급액</span><span class="th">거래처</span><span class="th">비고</span><span></span></div>' +
-      (site.exp.map(function (e, i) { return '<div class="row" style="' + g3 + '"><span class="num">' + e.d + '</span><span class="num r" style="font-weight:600">' + fmt(e.a) + '</span><span>' + h(e.v) + '</span><span style="color:var(--sub2)">' + h(e.m) + '</span>' + leBtn('exp', i) + '</div>'; }).join('') || '<div class="muted" style="padding:20px 8px">등록된 지출 내역이 없습니다.</div>') +
+      (site.exp.map(function (e, i) { return '<div class="row" style="' + g3 + '"><span class="num">' + e.d + '</span><span class="num r" style="font-weight:600">' + fmt(e.a) + '</span><span>' + h(e.v) + '</span><span style="color:var(--sub2);display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span>' + h(e.m) + '</span><span class="chip" style="font-size:11px;padding:1px 8px;' + COST_COL[costCat(e)] + '">' + h(costCat(e)) + '</span></span>' + leBtn('exp', i) + '</div>'; }).join('') || '<div class="muted" style="padding:20px 8px">등록된 지출 내역이 없습니다.</div>') +
       '<div class="row" style="' + g3 + ';border:0;font-weight:700"><span>합계</span><span class="num r" style="color:var(--amber)">' + fmt(expSum) + '</span><span></span><span></span><span></span></div></div></div></section>';
 
     return out + '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><div style="flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:20px">' + inSec + pnl + '</div>' + exp + '</div>';
@@ -707,6 +712,42 @@ body.embed main{padding:20px 24px 32px}
   document.addEventListener('input', function (e) { if (e.target.id === 'mmQ' && S.mm) { S.mm.q = e.target.value; renderMatchList(); } });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.mm) closeMatch(); });
 
+
+  /* ---------- 최종 손익 원가 분류 (지출 내역 비고 · 거래처 단어 기준, 위에서부터 먼저 맞는 것) ---------- */
+  var COST_CATS = [
+    { k: '하도급', w: ['하도급'] },
+    { k: '모듈, 인버터', w: ['모듈', '인버터'] },
+    { k: '구조물대', w: ['구조물'] },
+    { k: '구조검토, 설계감리', w: ['구조검토', '전기도면', '설계감리'] },
+    { k: '한전선로비', w: ['선로비'], v: ['한국전력'] },
+    { k: '영업비', w: ['영업비'] },
+    { k: '보험료 기타비용', w: [] }
+  ];
+  var COST_ORDER = ['한전선로비', '영업비', '구조검토, 설계감리', '구조물대', '모듈, 인버터', '하도급'];
+  var COST_COL = { '하도급': 'background:#E0E7FF;color:#3730A3', '모듈, 인버터': 'background:#DBEAFE;color:#1D4ED8', '구조물대': 'background:#FCE7F3;color:#9D174D', '구조검토, 설계감리': 'background:#EDE9FE;color:#5B21B6', '한전선로비': 'background:#FEF3C7;color:#92400E', '영업비': 'background:#DCFCE7;color:#166534', '보험료 기타비용': 'background:#EEF2F6;color:#4A5668' };
+  function costCat(e) {
+    var m = String(e.m || ''), v = String(e.v || '');
+    for (var i = 0; i < COST_ORDER.length; i++) {
+      var c = COST_CATS.filter(function (x) { return x.k === COST_ORDER[i]; })[0];
+      if (c.w.some(function (w) { return m.indexOf(w) >= 0; }) || (c.v || []).some(function (w) { return v.indexOf(w) >= 0; })) return c.k;
+    }
+    return '보험료 기타비용';
+  }
+  // 점검: 구분별 합계를 더한 값 = 기자재 및 지출 내역 합계 (건수도 같은지)
+  function costCheck(cs, list, expSum) {
+    var catSum = 0, catCnt = 0;
+    COST_CATS.forEach(function (c) { catSum += cs.sum[c.k]; catCnt += cs.cnt[c.k]; });
+    var ok = Math.round(catSum) === Math.round(expSum) && Math.round(cs.total) === Math.round(expSum) && catCnt === list.length;
+    return ok
+      ? '<div style="padding:10px 14px;border-radius:10px;background:#DCFCE7;color:#166534;font-size:13px;font-weight:600">✓ 원가 합계 ' + fmt(catSum) + '원 = 기자재 및 지출 내역 합계 ' + fmt(expSum) + '원 (' + list.length + '건 모두 분류됨)</div>'
+      : '<div class="err"><b>⚠ 금액이 안 맞습니다.</b> 원가 합계 ' + fmt(catSum) + '원 (' + catCnt + '건) / 지출 내역 합계 ' + fmt(expSum) + '원 (' + list.length + '건) · 차이 ' + fmt(expSum - catSum) + '원</div>';
+  }
+  function costSplit(list) {
+    var sum = {}, cnt = {}, total = 0;
+    COST_CATS.forEach(function (c) { sum[c.k] = 0; cnt[c.k] = 0; });
+    (list || []).forEach(function (e) { var k = costCat(e); sum[k] += e.a; cnt[k]++; total += e.a; });
+    return { sum: sum, cnt: cnt, total: total };
+  }
 
   /* ---------- 입금 · 지출 한 줄 수정 / 삭제 (원본 일자별 기록 + 입금내역 / 기자재 지급내역 같이) ---------- */
   S.le = null;
