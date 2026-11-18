@@ -147,6 +147,7 @@ body.embed main{padding:20px 24px 32px}
       <button class="navbtn" data-page="calendar">채권관리 달력</button>
       <button class="navbtn" data-page="notice">미납공문 처리로그</button>
       <button class="navbtn" data-page="ledger">일자별 기록</button>
+      <button class="navbtn" data-page="commission">영업수당관리</button>
     </nav>
     <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
       <button class="navbtn" id="reloadBtn" style="border:1px solid #D9DFD6">↻ 최신 내용 다시 불러오기</button>
@@ -197,7 +198,7 @@ body.embed main{padding:20px 24px 32px}
     var d = e.data || {};
     if (d.type === 'fs-key' && typeof d.key === 'string' && d.key) { clearTimeout(keyWait); var first = !memKey; memKey = d.key; S.err = {}; if (first) { render(); load(); } }
   });
-  var PART = { getBonds: 'bonds', getFund: 'fund', getSheets: 'sheets', getSites: 'sites', getMatches: 'matches' };
+  var PART = { getBonds: 'bonds', getFund: 'fund', getSheets: 'sheets', getSites: 'sites', getMatches: 'matches', getCommission: 'commission' };
   function call(fn, cb) {
     var part = PART[fn];
     fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: getKey(), parts: [part] }) })
@@ -281,7 +282,7 @@ body.embed main{padding:20px 24px 32px}
     if (S.bonds) info.push('ERP ' + (S.bonds.generatedAt || '').replace('T', ' ').slice(0, 16));
     if (S.fund) info.push('시트 ' + S.fund.readAt);
     $('syncInfo').textContent = info.length ? '불러온 시각\n' + info.join(' · ') : '';
-    var html = { site: pageSite, calendar: pageCalendar, notice: pageNotice, ledger: pageLedger }[S.page]();
+    var html = { site: pageSite, calendar: pageCalendar, notice: pageNotice, ledger: pageLedger, commission: pageCommission }[S.page]();
     $('main').innerHTML = html;
     if (S.page === 'site') renderDropdown();
   }
@@ -1132,6 +1133,270 @@ body.embed main{padding:20px 24px 32px}
     else if (e.key === 'Enter' && e.target.closest && e.target.closest('#leWrap') && e.target.tagName === 'INPUT') { e.preventDefault(); leSubmit(false); }
   });
 
+  /* ---------- 영업수당관리 (별도 스프레드시트 · 지사별 시트) ---------- */
+  var COMM_URL = 'https://docs.google.com/spreadsheets/d/1FLR1RUoWVopPOXZ67g5GjzTT-6NWln-reTk31HqdRvs/edit';
+  S.comm = null; S.cmBr = ''; S.cmQ = ''; S.cmLoading = false; S.cmView = 'price'; S.cmSQ = '';
+  try { S.cmBr = localStorage.getItem('fs-cmbr') || ''; S.cmView = localStorage.getItem('fs-cmview') || 'price'; } catch (e) {}
+  function loadComm() {
+    if (S.comm || S.cmLoading || !getKey()) return;
+    S.cmLoading = true;
+    call('getCommission', function (r) { S.comm = r; S.cmLoading = false; S.cmCache = {}; S.cmPR = null; });
+  }
+  function cmIdx(hdr, name, def) { for (var i = 0; i < hdr.length; i++) if (String(hdr[i]).replace(/\s/g, '').indexOf(name) === 0) return i; return def; }
+  // 시트 한 장 → 현장(발전소)별 묶음
+  function cmParse(b) {
+    S.cmCache = S.cmCache || {};
+    if (S.cmCache[b.name]) return S.cmCache[b.name];
+    var rows = b.rows || [], hi = -1;
+    for (var i = 0; i < Math.min(rows.length, 20); i++) if (String(rows[i][0] || '').trim() === '현장명') { hi = i; break; }
+    var res = { name: b.name, gid: b.gid, title: String((rows[0] || [])[0] || b.name).trim(), sites: [], extra: [] };
+    if (hi < 0) return (S.cmCache[b.name] = res);
+    var H = rows[hi], c = {
+      site: 0, total: cmIdx(H, '총수당', 1), memo: cmIdx(H, '적요', 2), date: cmIdx(H, '지급일', 3), paid: cmIdx(H, '실지출액', 4),
+      tax: cmIdx(H, '원천세', 5), amt: cmIdx(H, '수당금액', 6), kind: cmIdx(H, '증빙종류', 7), payee: cmIdx(H, '비고', 8)
+    };
+    for (var j = 9; j < H.length; j++) if (String(H[j] || '').trim()) res.extra.push({ i: j, label: String(H[j]).trim() });
+    var cur = null, g = function (r, k) { return String(r[c[k]] == null ? '' : r[c[k]]).trim(); };
+    for (var k = hi + 1; k < rows.length; k++) {
+      var r = rows[k];
+      if (!r.some(function (v) { return String(v).trim(); })) continue;
+      if (g(r, 'memo') === '합계') { if (cur) { cur.sumAmt = numOf(g(r, 'amt')); var bal = String(r[c.kind + 1] == null ? '' : r[c.kind + 1]).trim(); cur.bal = bal && bal !== '-' ? Number(bal.replace(/[^\d\-]/g, '')) || 0 : null; } cur = null; continue; }
+      var name = g(r, 'site');
+      if (name || !cur) { cur = { name: name || '(현장명 없음)', total: numOf(g(r, 'total')), pays: [], sumAmt: null, bal: null }; res.sites.push(cur); }
+      else if (!cur.total && numOf(g(r, 'total'))) cur.total = numOf(g(r, 'total'));
+      cur.pays.push({ memo: g(r, 'memo'), date: g(r, 'date'), paid: numOf(g(r, 'paid')), tax: g(r, 'tax'), amt: numOf(g(r, 'amt')), kind: g(r, 'kind'), payee: g(r, 'payee'),
+        extra: res.extra.map(function (x) { return String(r[x.i] == null ? '' : r[x.i]).trim(); }) });
+    }
+    res.sites.forEach(function (s) { if (s.sumAmt === null) s.sumAmt = s.pays.reduce(function (a, p) { return a + p.amt; }, 0); });
+    return (S.cmCache[b.name] = res);
+  }
+  function cmTabs() {
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap">' + [['price', '단가표 · 전체 검색'], ['calc', '단가 계산기'], ['branch', '지사별 지급내역']].map(function (x) {
+      return '<button class="tab' + (S.cmView === x[0] ? ' on' : '') + '" data-cmview="' + x[0] + '" style="min-height:40px">' + x[1] + '</button>'; }).join('') + '</div>';
+  }
+  function pageCommission() {
+    var out = headerSub('영업수당관리') + errBox('getCommission', '영업수당관리 시트');
+    loadComm();
+    if (!S.comm) return out + (S.err.getCommission ? '' : '<div class="card sec muted">영업수당관리 시트에서 불러오는 중입니다…</div>');
+    return out + cmTabs() + (S.cmView === 'branch' ? cmBranch() : S.cmView === 'calc' ? cmCalc() : cmPrice());
+  }
+  // '단가표' 시트(맨 첫 페이지)의 영업지사별 단가표 영역 읽기
+  function cmPriceRows() {
+    if (S.cmPR) return S.cmPR;
+    var R = S.comm.price || [], hi = -1, C = 6, out = { top: ['', ''], rows: [] };
+    for (var i = 0; i < R.length; i++) { var j = (R[i] || []).map(function (v) { return String(v).trim(); }).indexOf('영업자(지사)'); if (j >= 0) { hi = i; C = j; break; } }
+    if (hi < 0) return (S.cmPR = out);
+    var up = R[hi - 1] || [];
+    out.top = [String(up[C + 2] || '이전 계약').trim(), String(up[C + 4] || '이후 계약').trim()];
+    var who = '';
+    for (var k = hi + 1; k < R.length; k++) {
+      var c = (R[k] || []).slice(C, C + 7).map(function (v) { return String(v == null ? '' : v).trim(); });
+      if (!c.some(Boolean)) break;
+      if (c[0]) who = c[0];
+      out.rows.push({ who: who, first: !!c[0], v: c });
+    }
+    return (S.cmPR = out);
+  }
+  function cmPrice() {
+    var P = cmPriceRows(), q = norm(S.cmSQ), BR = S.comm.branches || [];
+    var hits = [];
+    if (q) BR.forEach(function (b) {
+      cmParse(b).sites.forEach(function (s) {
+        var siteHit = norm(s.name).indexOf(q) >= 0;
+        s.pays.forEach(function (p) {
+          if (siteHit || norm(p.payee).indexOf(q) >= 0 || norm(p.memo).indexOf(q) >= 0 || norm(b.name).indexOf(q) >= 0 || p.date.indexOf(S.cmSQ.trim()) >= 0)
+            hits.push({ br: b.name, site: s.name, memo: p.memo, payee: p.payee, date: p.date, amt: p.amt });
+        });
+      });
+    });
+    var gs = 'grid-template-columns:minmax(100px,140px) minmax(110px,170px) minmax(140px,1fr) minmax(100px,150px) 100px 124px 64px';
+    var hitTot = hits.reduce(function (a, x) { return a + x.amt; }, 0), LIM = 300;
+    var search = '<section class="card sec">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><h2 style="margin:0">현장명 / 수당지급자 검색</h2>' +
+      '<label class="box" style="flex:1 1 360px;max-width:520px;padding-right:12px"><span class="sr">전체 지사 검색</span><input type="search" id="cmSQ" placeholder="현장명 · 수당지급자 · 적요 · 지사 · 날짜 (전체 지사에서 찾기)" value="' + h(S.cmSQ) + '"></label></div>' +
+      (!q ? '<div class="muted" style="font-size:13px">검색어를 입력하면 모든 지사 시트에서 찾아 보여줍니다.</div>' :
+        '<div class="num" style="font-size:14px;color:var(--sub2)">검색 결과 <b style="color:var(--ink)">' + hits.length + '건</b> · 수당금액 합계 <b style="color:var(--amber)">' + fmt(hitTot) + '</b></div>' +
+        '<div class="scroll"><div style="min-width:860px"><div class="head" style="' + gs + '"><span class="th">시트명</span><span class="th">현장명</span><span class="th">적요</span><span class="th">수당지급자</span><span class="th">지급일</span><span class="th r">수당금액(증빙)</span><span></span></div>' +
+        (hits.slice(0, LIM).map(function (x) {
+          return '<div class="row" style="' + gs + ';font-size:14px"><span><span class="chip" style="border-radius:6px;font-size:12px;background:#EBF5E4;color:#276724">' + h(x.br) + '</span></span><span style="font-weight:700;overflow-wrap:anywhere">' + h(x.site) + '</span><span style="color:var(--sub2);overflow-wrap:anywhere">' + h(x.memo) + '</span><span style="overflow-wrap:anywhere">' + h(x.payee) + '</span><span class="num" style="color:var(--sub2)">' + h(x.date) + '</span><span class="num r" style="font-weight:600;color:var(--amber)">' + fmt(x.amt) + '</span>' +
+            '<span><button class="tab" data-cmgo="' + h(x.br) + '" data-cmsite="' + h(x.site) + '" style="min-height:30px;padding:0 8px;font-size:12px">이동</button></span></div>';
+        }).join('') || '<div class="muted" style="padding:24px 0;text-align:center">검색 결과가 없습니다.</div>') +
+        (hits.length > LIM ? '<div class="muted" style="padding:10px;text-align:center">앞의 ' + LIM + '건만 표시 — 검색어를 더 좁혀 주세요.</div>' : '') + '</div></div>') + '</section>';
+    var gp = 'grid-template-columns:minmax(120px,160px) 96px 90px 90px 90px 90px minmax(160px,1fr)';
+    var price = '<section class="card sec"><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><h2 style="margin:0">영업지사별 단가표 <span class="muted" style="font-size:13px;font-weight:400">(만원/kW)</span></h2>' +
+      '<a class="tab" href="' + COMM_URL + '" target="_blank" rel="noopener" style="min-height:36px;display:inline-flex;align-items:center;text-decoration:none">시트에서 열기 ↗</a></div>' +
+      (P.rows.length ? '<div class="scroll"><div style="min-width:820px">' +
+        '<div class="head" style="' + gp + ';border-bottom:0;padding-bottom:0"><span></span><span></span><span class="th" style="grid-column:span 2;text-align:center">' + h(P.top[0]) + '</span><span class="th" style="grid-column:span 2;text-align:center">' + h(P.top[1]) + '</span><span></span></div>' +
+        '<div class="head" style="' + gp + '"><span class="th">영업자(지사)</span><span class="th">모듈</span><span class="th r">현금공사</span><span class="th r">팩토링</span><span class="th r">현금공사</span><span class="th r">팩토링</span><span class="th">비고</span></div>' +
+        P.rows.map(function (r) {
+          var v = r.v, kw = /kW/i.test(r.who);
+          return '<div class="row" style="' + gp + ';font-size:14px;min-height:38px' + (r.first ? ';border-top:1px solid var(--line)' : '') + (kw ? ';background:#FFFBEB' : '') + '">' +
+            '<span style="font-weight:700">' + (r.first ? h(v[0]) : '') + '</span><span style="color:var(--sub2)">' + h(v[1]) + '</span>' +
+            [2, 3, 4, 5].map(function (i) { return '<span class="num r" style="font-weight:' + (i >= 4 ? 700 : 500) + '">' + h(v[i]) + '</span>'; }).join('') +
+            '<span style="color:var(--sub2);font-size:13px;overflow-wrap:anywhere">' + h(v[6]) + '</span></div>';
+        }).join('') + '</div></div>' : '<div class="muted">단가표 영역을 찾지 못했습니다.</div>') + '</section>';
+    return search + price;
+  }
+  function cmBranch() {
+    var out = '';
+    var BR = S.comm.branches || [];
+    if (!BR.length) return out + '<div class="card sec muted">불러온 영업지사 시트가 없습니다.</div>';
+    var b = BR.filter(function (x) { return x.name === S.cmBr; })[0] || BR[0]; S.cmBr = b.name;
+    var P = cmParse(b), q = norm(S.cmQ);
+    var sites = !q ? P.sites : P.sites.filter(function (s) {
+      return norm(s.name).indexOf(q) >= 0 || s.pays.some(function (p) { return norm(p.memo).indexOf(q) >= 0 || norm(p.payee).indexOf(q) >= 0 || p.date.indexOf(S.cmQ.trim()) >= 0; });
+    });
+    var nPay = 0, sAmt = 0, sPaid = 0, balS = 0, balN = 0, last = '';
+    sites.forEach(function (s) { s.pays.forEach(function (p) { nPay++; sAmt += p.amt; sPaid += p.paid; if (p.date > last) last = p.date; }); if (s.bal > 0) { balS += s.bal; balN++; } });
+    var opts = BR.map(function (x) { var n = cmParse(x).sites.length; return '<option value="' + h(x.name) + '"' + (x.name === b.name ? ' selected' : '') + '>' + h(x.name) + ' (' + n + ')</option>'; }).join('');
+    var sumBox = function (l, v, sub, col) { return '<div style="display:flex;flex-direction:column;gap:4px;padding:12px 16px;border:1px solid var(--line);border-radius:12px;min-width:150px;flex:1 1 150px"><span class="lbl">' + l + '</span><span class="num" style="font-size:20px;font-weight:700;color:' + col + '">' + v + '</span>' + (sub ? '<span class="num muted" style="font-size:12px">' + sub + '</span>' : '') + '</div>'; };
+    var ex = P.extra;
+    var g = 'grid-template-columns:minmax(120px,170px) minmax(160px,1fr) 100px 120px 96px 124px 92px minmax(90px,130px)' + ex.map(function () { return ' 96px'; }).join('');
+    var minW = 1000 + ex.length * 100;
+    var body = sites.map(function (s) {
+      var rows = s.pays.map(function (p, i) {
+        return '<div class="row" style="' + g + ';font-size:14px">' +
+          '<span style="font-weight:700;min-width:0;overflow-wrap:anywhere">' + (i === 0 ? h(s.name) : '') + '</span>' +
+          '<span style="color:var(--sub2);min-width:0;overflow-wrap:anywhere">' + h(p.memo) + '</span>' +
+          '<span class="num" style="color:var(--sub2)">' + h(p.date) + '</span>' +
+          '<span class="num r">' + fmt(p.paid) + '</span>' +
+          '<span class="num r" style="color:var(--sub2);font-size:13px">' + h(p.tax) + '</span>' +
+          '<span class="num r" style="font-weight:600;color:var(--amber)">' + fmt(p.amt) + '</span>' +
+          '<span><span class="chip" style="border-radius:6px;font-size:12px;' + (p.kind.indexOf('세금') >= 0 ? 'background:#DBEAFE;color:#1D4ED8' : p.kind ? 'background:#FEF3C7;color:#92400E' : '') + '">' + h(p.kind) + '</span></span>' +
+          '<span style="min-width:0;overflow-wrap:anywhere">' + h(p.payee) + '</span>' +
+          p.extra.map(function (v) { return '<span class="num r" style="color:var(--sub2)">' + h(v) + '</span>'; }).join('') + '</div>';
+      }).join('');
+      var tail = '<span class="num muted" style="font-size:12.5px">' + (s.total ? '총수당 ' + fmt(s.total) : '') + (s.bal !== null ? (s.total ? ' · ' : '') + '<b style="color:' + (s.bal > 0 ? 'var(--red)' : 'var(--sub2)') + '">잔액 ' + fmt(s.bal) + '</b>' : '') + '</span>';
+      return rows + '<div class="row" style="' + g + ';background:var(--surface2);font-size:13px;min-height:36px;border-bottom:1px solid var(--line)"><span></span><span style="font-weight:600">합계 <span class="muted" style="font-weight:400">' + s.pays.length + '건</span></span><span></span>' +
+        '<span class="num r" style="font-weight:600">' + fmt(s.pays.reduce(function (a, p) { return a + p.paid; }, 0)) + '</span><span></span>' +
+        '<span class="num r" style="font-weight:700">' + fmt(s.sumAmt) + '</span><span style="grid-column:span ' + (2 + ex.length) + '">' + tail + '</span></div>';
+    }).join('');
+    return out + '<section class="card sec">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between">' +
+        '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">' +
+          '<label class="field" style="flex:0 0 260px"><span>영업지사</span><span class="box" style="min-height:42px;padding-right:8px"><select id="cmBr" style="width:100%;border:0;background:transparent;font-size:15px;font-weight:600;color:var(--ink);outline:none;cursor:pointer">' + opts + '</select></span></label>' +
+          '<a class="tab" href="' + COMM_URL + (b.gid ? '#gid=' + b.gid : '') + '" target="_blank" rel="noopener" style="min-height:42px;display:inline-flex;align-items:center;text-decoration:none">시트에서 열기 ↗</a></div>' +
+        '<label class="box" style="flex:0 1 320px;padding-right:12px"><span class="sr">현장 · 적요 · 비고 검색</span><input type="search" id="cmQ" placeholder="현장명 · 적요 · 수령인 · 날짜 검색" value="' + h(S.cmQ) + '"></label></div>' +
+      '<div class="muted" style="font-size:13px">' + h(P.title) + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:10px">' + sumBox('현장', sites.length.toLocaleString('ko-KR') + '곳', '지급 ' + nPay + '건', 'var(--ink)') +
+        sumBox('수당금액(증빙) 합계', fmt(sAmt), null, 'var(--amber)') + sumBox('실지출액 합계', fmt(sPaid), null, 'var(--ink)') +
+        sumBox('남은 잔액', fmt(balS), balN ? balN + '개 현장' : '없음', balS > 0 ? 'var(--red)' : 'var(--ink)') + sumBox('최근 지급일', last ? dot(last) : '—', null, 'var(--ink)') + '</div>' +
+      '<div class="scroll"><div style="min-width:' + minW + 'px">' +
+      '<div class="head" style="' + g + '"><span class="th">현장명</span><span class="th">적요</span><span class="th">지급일</span><span class="th r">실지출액</span><span class="th r">원천세/부가세</span><span class="th r">수당금액(증빙)</span><span class="th">증빙종류</span><span class="th">비고</span>' +
+        ex.map(function (x) { return '<span class="th r">' + h(x.label) + '</span>'; }).join('') + '</div>' +
+      (body || '<div class="muted" style="padding:28px 0;text-align:center">' + (q ? '검색 결과가 없습니다.' : '이 지사에는 아직 지급 내역이 없습니다.') + '</div>') +
+      '</div></div></section>';
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.cmview) { S.cmView = t.dataset.cmview; try { localStorage.setItem('fs-cmview', S.cmView); } catch (x) {} render(); }
+    else if (t.dataset.cmgo) { S.cmView = 'branch'; S.cmBr = t.dataset.cmgo; S.cmQ = t.dataset.cmsite || ''; render(); window.scrollTo(0, 0); }
+  });
+  document.addEventListener('change', function (e) { if (e.target.id === 'cmBr') { S.cmBr = e.target.value; S.cmQ = ''; try { localStorage.setItem('fs-cmbr', S.cmBr); } catch (x) {} render(); } });
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'cmSQ') { S.cmSQ = e.target.value; clearTimeout(S.cmT); S.cmT = setTimeout(function () { render(); var q = $('cmSQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 250); }
+    else if (e.target.id === 'cmQ') { S.cmQ = e.target.value; clearTimeout(S.cmT); S.cmT = setTimeout(function () { render(); var q = $('cmQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 250); }
+  });
+
+  /* ---------- 단가 계산기 (시트 '계약 단가 및 정산 시스템'을 사이트로) ---------- */
+  S.cc = { name: '', cap: '', capCalc: '', date: '', supply: '', br: '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '', inEdited: false };
+  function ccNum(v) { var n = Number(String(v == null ? '' : v).replace(/[^\d.\-]/g, '')); return isFinite(n) ? n : 0; }
+  function ccBranches() { var seen = {}, out = []; cmPriceRows().rows.forEach(function (r) { if (r.who && !seen[r.who]) { seen[r.who] = 1; out.push(r.who); } }); return out; }
+  function ccCutoff() { var m = /(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})/.exec(cmPriceRows().top[1] || ''); return m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : '2026-02-01'; }
+  // 단가표에서 정산 입금가(원/kW) 찾기 → { v: 원, why: 설명, note: 비고 }
+  function ccLookup() {
+    var c = S.cc, rows = cmPriceRows().rows.filter(function (r) { return r.who === c.br; });
+    if (!c.br || !rows.length) return { v: 0, why: '영업지사를 선택하세요' };
+    var cap = ccNum(c.capCalc || c.cap), note = '';
+    rows.forEach(function (r) { if (r.v[6]) note = note ? note + ' / ' + r.v[6] : r.v[6]; });
+    if (/kw/i.test(c.br)) {   // 용량 구간별 kW단가 (예: 50kW 미만 / 70kW 미만 / 70kW 이상)
+      if (!cap) return { v: 0, why: '용량을 입력하면 구간 단가를 찾습니다', note: note };
+      var hit = null;
+      rows.forEach(function (r) { var m = /([\d.]+)\s*kW\s*(미만|이상)/i.exec(r.v[1]); if (!m || hit) return; var lim = +m[1]; if ((m[2] === '미만' && cap < lim) || (m[2] === '이상' && cap >= lim)) hit = r; });
+      return hit ? { v: ccNum(hit.v[2]) * 10000, why: c.br + ' · ' + hit.v[1] + ' 구간', note: note } : { v: 0, why: '해당 용량 구간이 단가표에 없습니다', note: note };
+    }
+    var r = rows.filter(function (x) { return x.v[1] === c.grade; })[0];
+    if (!r) return { v: 0, why: c.br + '에 ' + c.grade + ' 단가가 없습니다', note: note };
+    var after = c.date && c.date >= ccCutoff(), col = (after ? 4 : 2) + (c.kind === '팩토링' ? 1 : 0), val = ccNum(r.v[col]);
+    return { v: val * 10000, why: c.br + ' · ' + c.grade + ' · ' + c.kind + ' · ' + (c.date ? (after ? ccCutoff() + ' 이후' : ccCutoff() + ' 이전') + ' 계약' : '계약일 미입력 → 이전 계약 기준'), note: note };
+  }
+  function ccCalc() {
+    var c = S.cc, L = ccLookup(), cap = ccNum(c.capCalc || c.cap), sup = ccNum(c.supply);
+    var inKw = c.inEdited ? ccNum(c.inPrice) : L.v;
+    var unit = cap ? sup / cap : 0, inTot = inKw * cap, fee, feeKw;
+    if (c.method === 'kw') { feeKw = ccNum(c.perKw); fee = feeKw * cap; }
+    else { fee = sup - inTot; feeKw = cap ? fee / cap : 0; }
+    return { L: L, cap: cap, sup: sup, unit: unit, inKw: inKw, inTot: inTot, fee: fee, feeKw: feeKw };
+  }
+  function ccResultHtml() {
+    var R = ccCalc(), c = S.cc, pct = function (v) { return R.sup ? (v / R.sup * 100).toFixed(1) + '%' : '—'; };
+    var won = function (v) { return R.cap || R.sup ? fmt(v) + ' 원' : '- 원'; };
+    var stat = function (l, v, col) { return '<div style="display:flex;flex-direction:column;gap:4px;align-items:center;padding:10px;flex:1 1 140px"><span class="lbl">' + l + '</span><span class="num" style="font-size:20px;font-weight:700;color:' + col + '">' + v + '</span></div>'; };
+    var g = 'grid-template-columns:minmax(120px,1fr) 130px 150px 80px minmax(140px,1.2fr)';
+    var line = function (l, kw, tot, p, note, st) { return '<div class="row" style="' + g + ';font-size:14px;' + (st || '') + '"><span style="font-weight:600">' + l + '</span><span class="num r">' + kw + '</span><span class="num r" style="font-weight:600">' + tot + '</span><span class="num r" style="color:var(--sub2)">' + p + '</span><span style="color:var(--sub2);font-size:12.5px">' + note + '</span></div>'; };
+    var warn = '';
+    if (R.fee < 0) warn = '<div class="err">영업비가 마이너스입니다 — 계약금액이 입금가보다 낮습니다. 입금가·용량을 확인하세요.</div>';
+    return '<div style="display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px">' +
+        stat('정산 용량', R.cap ? R.cap.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) + ' kW' : '- kW', 'var(--ink)') + stat('계약단가 / kW', R.cap && R.sup ? fmt(R.unit) + ' 원' : '- 원', 'var(--ink)') +
+        stat('입금가 / kW', R.inKw ? fmt(R.inKw) + ' 원' : '- 원', c.inEdited ? 'var(--amber)' : 'var(--ink)') + stat('영업비', R.cap ? fmt(R.fee) + ' 원' : '- 원', 'var(--blue)') + '</div>' + warn +
+      '<div class="scroll"><div style="min-width:640px"><div class="head" style="' + g + '"><span class="th">항목</span><span class="th r">단가 (원/kW)</span><span class="th r">금액 (원)</span><span class="th r">비율</span><span class="th">비고</span></div>' +
+      line('계약단가 (공급가)', R.cap && R.sup ? fmt(R.unit) : '-', won(R.sup), R.sup ? '100%' : '—', '계약금액 ÷ 정산 용량') +
+      line('정산 입금가', R.inKw ? fmt(R.inKw) : '-', won(R.inTot), pct(R.inTot), c.inEdited ? '<b style="color:var(--amber)">직접 수정한 값</b>' : h(R.L.why || '')) +
+      line('영업비', R.cap ? fmt(R.feeKw) : '-', won(R.fee), pct(R.fee), c.method === 'kw' ? 'kW당 영업비 직접 입력' : '계약금액 − 입금가', 'background:#EFF6FF;color:var(--blue);font-weight:700') +
+      '</div></div>' + (R.L.note ? '<div class="muted" style="font-size:12.5px">단가표 비고: ' + h(R.L.note) + '</div>' : '');
+  }
+  function ccHint() { var L = ccLookup(); return S.cc.inEdited ? '단가표 값 ' + (L.v ? fmt(L.v) + '원' : '없음') + ' 대신 직접 입력 중 · <button class="tab" data-ccreset="1" style="min-height:26px;padding:0 8px;font-size:12px">단가표 값으로 되돌리기</button>' : h(L.why || ''); }
+  function ccRefresh() {
+    var el = $('ccRes'); if (el) el.innerHTML = ccResultHtml();
+    var L = ccLookup(), ip = $('cc_inPrice'), hint = $('ccInHint');
+    if (ip && !S.cc.inEdited) ip.value = L.v ? Number(L.v).toLocaleString('ko-KR') : '';
+    if (hint) hint.innerHTML = ccHint();
+    var pk = $('cc_perKw'); if (pk) pk.disabled = S.cc.method !== 'kw';
+  }
+  function cmCalc() {
+    var c = S.cc, fld = function (id, label, badge, inner, span) { return '<label class="field" style="flex:1 1 ' + (span ? '100%' : '260px') + '"><span>' + label + (badge ? ' <span class="chip" style="font-size:11px;padding:0 6px;background:#EBF5E4;color:#276724">' + badge + '</span>' : '') + '</span>' + inner + '</label>'; };
+    var inp = function (k, ph, type) { return '<span class="box" style="min-height:42px;padding-right:10px"><input id="cc_' + k + '" data-cc="' + k + '" ' + (type === 'date' ? 'type="date"' : 'inputmode="decimal" autocomplete="off"') + ' placeholder="' + ph + '" value="' + h(c[k]) + '"></span>'; };
+    var sel = function (k, opts) { return '<span class="box" style="min-height:42px;padding-right:8px"><select id="cc_' + k + '" data-cc="' + k + '" style="width:100%;border:0;background:transparent;font-size:14px;outline:none">' + opts.map(function (o) { o = [].concat(o); return '<option value="' + h(o[0]) + '"' + (c[k] === o[0] ? ' selected' : '') + '>' + h(o[1] || o[0]) + '</option>'; }).join('') + '</select></span>'; };
+    return '<section class="card sec"><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><h2 style="margin:0">계약 단가 및 정산 계산기</h2>' +
+        '<span style="display:flex;gap:8px"><button class="tab" data-ccex="1" style="min-height:34px">설희 예시로 채우기</button><button class="tab" data-ccclear="1" style="min-height:34px">초기화</button><button class="tab on" data-cccopy="1" style="min-height:34px">결과 복사</button></span></div>' +
+      '<div id="ccRes" style="display:flex;flex-direction:column;gap:10px">' + ccResultHtml() + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:14px 16px">' +
+        fld('name', '발전소명', '', inp('name', '예: 설희 태양광')) +
+        fld('cap', '설치용량 (kW)', '계약서', inp('cap', '예: 199.68')) +
+        fld('capCalc', '정산 용량 (kW)', '비우면 설치용량', inp('capCalc', '예: 200 (계약금액 산정 용량)')) +
+        fld('supply', '계약금액 (공급가, 원)', 'VAT 제외', inp('supply', '예: 186,000,000')) +
+        fld('date', '계약일자', '', inp('date', '', 'date')) +
+        fld('br', '영업지사', '단가표', sel('br', [['', '-- 영업지사 선택 --']].concat(ccBranches()))) +
+        fld('grade', '모듈등급', '', sel('grade', ['2등급', '무등급', '중국산'])) +
+        fld('kind', '공사종류', '', sel('kind', ['현금공사', '팩토링'])) +
+        fld('method', '영업비 계산방식', '', sel('method', [['price', '계약단가 기준 (계약금액 − 정산 입금가)'], ['kw', 'kW당 영업비 직접 입력']])) +
+        fld('perKw', 'kW당 영업비 (원/kW)', '직접 입력', '<span class="box" style="min-height:42px;padding-right:10px"><input id="cc_perKw" data-cc="perKw" inputmode="decimal" autocomplete="off" placeholder="예: 80,000"' + (c.method !== 'kw' ? ' disabled' : '') + ' value="' + h(c.perKw) + '"></span>') +
+        '<label class="field" style="flex:1 1 100%"><span>정산 입금가 (원/kW) <span class="chip" style="font-size:11px;padding:0 6px;background:#FEF3C7;color:#92400E">단가표 자동 · 직접 수정 가능</span></span>' +
+          '<span class="box" style="min-height:42px;padding-right:10px;max-width:360px' + (c.inEdited ? ';border-color:var(--amber);background:#FFFBEB' : '') + '"><input id="cc_inPrice" data-cc="inPrice" inputmode="decimal" autocomplete="off" placeholder="단가표에서 자동으로 채워집니다" value="' + h(c.inEdited ? c.inPrice : (ccLookup().v ? Number(ccLookup().v).toLocaleString('ko-KR') : '')) + '"></span>' +
+          '<span id="ccInHint" class="muted" style="font-size:12.5px;font-weight:400">' + ccHint() + '</span></label>' +
+      '</div></section>';
+  }
+  document.addEventListener('input', function (e) {
+    var k = e.target.dataset && e.target.dataset.cc; if (!k) return;
+    var v = e.target.value;
+    if (k === 'supply' || k === 'perKw' || k === 'inPrice') { var d = v.replace(/[^\d]/g, ''); v = d ? Number(d).toLocaleString('ko-KR') : ''; e.target.value = v; }
+    S.cc[k] = v;
+    if (k === 'inPrice') { S.cc.inEdited = v !== ''; var bx = e.target.parentNode; bx.style.borderColor = S.cc.inEdited ? 'var(--amber)' : ''; bx.style.background = S.cc.inEdited ? '#FFFBEB' : ''; }
+    ccRefresh();
+  });
+  document.addEventListener('change', function (e) { var k = e.target.dataset && e.target.dataset.cc; if (!k || e.target.tagName !== 'SELECT') return; S.cc[k] = e.target.value; ccRefresh(); });
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.ccreset) { e.preventDefault(); S.cc.inEdited = false; S.cc.inPrice = ''; render(); }
+    else if (t.dataset.ccclear) { S.cc = { name: '', cap: '', capCalc: '', date: '', supply: '', br: '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '', inEdited: false }; render(); }
+    else if (t.dataset.ccex) { S.cc = { name: '설희 태양광', cap: '199.68', capCalc: '200', date: '2026-01-27', supply: '186,000,000', br: ccBranches().indexOf('고려발전') >= 0 ? '고려발전' : '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '850,000', inEdited: true }; render(); }
+    else if (t.dataset.cccopy) {
+      var R = ccCalc(), c = S.cc, txt = [['발전소', c.name], ['설치용량', c.cap + ' kW'], ['정산용량', R.cap + ' kW'], ['영업지사', c.br], ['모듈등급', c.grade], ['공사종류', c.kind], ['계약일', c.date],
+        ['계약금액(공급가)', fmt(R.sup)], ['계약단가/kW', fmt(R.unit)], ['입금가/kW', fmt(R.inKw) + (c.inEdited ? ' (직접 수정)' : '')], ['입금가 합계', fmt(R.inTot)], ['영업비/kW', fmt(R.feeKw)], ['영업비', fmt(R.fee)]].map(function (x) { return x.join('\t'); }).join('\n');
+      try { navigator.clipboard.writeText(txt).then(function () { t.textContent = '복사됨 ✓'; setTimeout(function () { t.textContent = '결과 복사'; }, 1500); }); } catch (x) {}
+    }
+  });
+
   /* ---------- 이벤트 ---------- */
   document.addEventListener('click', function (e) {
     var t = e.target.closest('button'); if (!t) return;
@@ -1140,7 +1405,7 @@ body.embed main{padding:20px 24px 32px}
     else if (t.dataset.kind) { S.kind = t.dataset.kind; render(); }
     else if (t.dataset.cal) { var now = new Date(), ym = S.calYM || (now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2)); var d = new Date(+ym.slice(0, 4), +ym.slice(5) - 1 + (+t.dataset.cal), 1); S.calYM = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); render(); }
     else if (t.id === 'ddBtn') { S.dd = !S.dd; S.typed = ''; S.act = 0; renderDropdown(); if (S.dd) $('siteInput').focus(); }
-    else if (t.id === 'reloadBtn') { S.bonds = S.fund = S.sheets = S.sites = S.matches = null; resetMatchCache(); closeMatch(); S.err = {}; render(); load(); }
+    else if (t.id === 'reloadBtn') { S.bonds = S.fund = S.sheets = S.sites = S.matches = S.comm = null; S.cmLoading = false; S.cmPR = null; resetMatchCache(); closeMatch(); S.err = {}; render(); load(); }
     else if (t.dataset.id) { if (S.page !== 'site') { S.page = 'site'; S.tab = '전체'; } pick(t.dataset.id); }
   });
   document.addEventListener('mousedown', function (e) { if (e.target.closest('.opt, #ddBtn')) e.preventDefault(); });
