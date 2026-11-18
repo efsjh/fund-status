@@ -1325,11 +1325,11 @@ body.embed main{padding:20px 24px 32px}
     var inKw = c.inEdited ? ccNum(c.inPrice) : L.v;
     var unit = cap ? sup / cap : 0, inTot = inKw * cap, fee, feeKw;
     if (c.method === 'kw') { feeKw = ccNum(c.perKw); fee = feeKw * cap; }
-    else { fee = sup - inTot; feeKw = cap ? fee / cap : 0; }
+    else if (inKw) { fee = sup - inTot; feeKw = cap ? fee / cap : 0; } else { fee = null; feeKw = null; }
     return { L: L, cap: cap, sup: sup, unit: unit, inKw: inKw, inTot: inTot, fee: fee, feeKw: feeKw };
   }
   function ccResultHtml() {
-    var R = ccCalc(), c = S.cc, pct = function (v) { return R.sup ? (v / R.sup * 100).toFixed(1) + '%' : '—'; };
+    var R = ccCalc(), c = S.cc, pct = function (v) { return R.sup && v !== null ? (v / R.sup * 100).toFixed(1) + '%' : '—'; };
     var won = function (v) { return R.cap || R.sup ? fmt(v) + ' 원' : '- 원'; };
     var stat = function (l, v, col) { return '<div style="display:flex;flex-direction:column;gap:4px;align-items:center;padding:10px;flex:1 1 140px"><span class="lbl">' + l + '</span><span class="num" style="font-size:20px;font-weight:700;color:' + col + '">' + v + '</span></div>'; };
     var g = 'grid-template-columns:minmax(120px,1fr) 130px 150px 80px minmax(140px,1.2fr)';
@@ -1338,11 +1338,11 @@ body.embed main{padding:20px 24px 32px}
     if (R.fee < 0) warn = '<div class="err">영업비가 마이너스입니다 — 계약금액이 입금가보다 낮습니다. 입금가·용량을 확인하세요.</div>';
     return '<div style="display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px">' +
         stat('정산 용량', R.cap ? R.cap.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) + ' kW' : '- kW', 'var(--ink)') + stat('계약단가 / kW', R.cap && R.sup ? fmt(R.unit) + ' 원' : '- 원', 'var(--ink)') +
-        stat('입금가 / kW', R.inKw ? fmt(R.inKw) + ' 원' : '- 원', c.inEdited ? 'var(--amber)' : 'var(--ink)') + stat('영업비', R.cap ? fmt(R.fee) + ' 원' : '- 원', 'var(--blue)') + '</div>' + warn +
+        stat('입금가 / kW', R.inKw ? fmt(R.inKw) + ' 원' : '- 원', c.inEdited ? 'var(--amber)' : 'var(--ink)') + stat('영업비', R.cap && R.fee !== null ? fmt(R.fee) + ' 원' : '- 원', 'var(--blue)') + '</div>' + warn +
       '<div class="scroll"><div style="min-width:640px"><div class="head" style="' + g + '"><span class="th">항목</span><span class="th r">단가 (원/kW)</span><span class="th r">금액 (원)</span><span class="th r">비율</span><span class="th">비고</span></div>' +
       line('계약단가 (공급가)', R.cap && R.sup ? fmt(R.unit) : '-', won(R.sup), R.sup ? '100%' : '—', '계약금액 ÷ 정산 용량') +
       line('정산 입금가', R.inKw ? fmt(R.inKw) : '-', won(R.inTot), pct(R.inTot), c.inEdited ? '<b style="color:var(--amber)">직접 수정한 값</b>' : h(R.L.why || '')) +
-      line('영업비', R.cap ? fmt(R.feeKw) : '-', won(R.fee), pct(R.fee), c.method === 'kw' ? 'kW당 영업비 직접 입력' : '계약금액 − 입금가', 'background:#EFF6FF;color:var(--blue);font-weight:700') +
+      line('영업비', R.cap && R.feeKw !== null ? fmt(R.feeKw) : '-', R.fee === null ? '- 원' : won(R.fee), pct(R.fee), c.method === 'kw' ? 'kW당 영업비 직접 입력' : '계약금액 − 입금가', 'background:#EFF6FF;color:var(--blue);font-weight:700') +
       '</div></div>' + (R.L.note ? '<div class="muted" style="font-size:12.5px">단가표 비고: ' + h(R.L.note) + '</div>' : '');
   }
   function ccHint() { var L = ccLookup(); return S.cc.inEdited ? '단가표 값 ' + (L.v ? fmt(L.v) + '원' : '없음') + ' 대신 직접 입력 중 · <button class="tab" data-ccreset="1" style="min-height:26px;padding:0 8px;font-size:12px">단가표 값으로 되돌리기</button>' : h(L.why || ''); }
@@ -1358,7 +1358,8 @@ body.embed main{padding:20px 24px 32px}
     var inp = function (k, ph, type) { return '<span class="box" style="min-height:42px;padding-right:10px"><input id="cc_' + k + '" data-cc="' + k + '" ' + (type === 'date' ? 'type="date"' : 'inputmode="decimal" autocomplete="off"') + ' placeholder="' + ph + '" value="' + h(c[k]) + '"></span>'; };
     var sel = function (k, opts) { return '<span class="box" style="min-height:42px;padding-right:8px"><select id="cc_' + k + '" data-cc="' + k + '" style="width:100%;border:0;background:transparent;font-size:14px;outline:none">' + opts.map(function (o) { o = [].concat(o); return '<option value="' + h(o[0]) + '"' + (c[k] === o[0] ? ' selected' : '') + '>' + h(o[1] || o[0]) + '</option>'; }).join('') + '</select></span>'; };
     return '<section class="card sec"><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><h2 style="margin:0">계약 단가 및 정산 계산기</h2>' +
-        '<span style="display:flex;gap:8px"><button class="tab" data-ccex="1" style="min-height:34px">설희 예시로 채우기</button><button class="tab" data-ccclear="1" style="min-height:34px">초기화</button><button class="tab on" data-cccopy="1" style="min-height:34px">결과 복사</button></span></div>' +
+        '<span style="display:flex;gap:8px"><button class="tab" data-ccclear="1" style="min-height:34px">초기화</button><button class="tab on" data-cccopy="1" style="min-height:34px">결과 복사</button></span></div>' +
+      ccDropHtml() +
       '<div id="ccRes" style="display:flex;flex-direction:column;gap:10px">' + ccResultHtml() + '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:14px 16px">' +
         fld('name', '발전소명', '', inp('name', '예: 설희 태양광')) +
@@ -1388,14 +1389,107 @@ body.embed main{padding:20px 24px 32px}
   document.addEventListener('click', function (e) {
     var t = e.target.closest('button'); if (!t) return;
     if (t.dataset.ccreset) { e.preventDefault(); S.cc.inEdited = false; S.cc.inPrice = ''; render(); }
-    else if (t.dataset.ccclear) { S.cc = { name: '', cap: '', capCalc: '', date: '', supply: '', br: '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '', inEdited: false }; render(); }
-    else if (t.dataset.ccex) { S.cc = { name: '설희 태양광', cap: '199.68', capCalc: '200', date: '2026-01-27', supply: '186,000,000', br: ccBranches().indexOf('고려발전') >= 0 ? '고려발전' : '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '850,000', inEdited: true }; render(); }
+    else if (t.dataset.ccclear) { S.cc = { name: '', cap: '', capCalc: '', date: '', supply: '', br: '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '', inEdited: false }; S.ccPdf.msg = ''; render(); }
     else if (t.dataset.cccopy) {
       var R = ccCalc(), c = S.cc, txt = [['발전소', c.name], ['설치용량', c.cap + ' kW'], ['정산용량', R.cap + ' kW'], ['영업지사', c.br], ['모듈등급', c.grade], ['공사종류', c.kind], ['계약일', c.date],
         ['계약금액(공급가)', fmt(R.sup)], ['계약단가/kW', fmt(R.unit)], ['입금가/kW', fmt(R.inKw) + (c.inEdited ? ' (직접 수정)' : '')], ['입금가 합계', fmt(R.inTot)], ['영업비/kW', fmt(R.feeKw)], ['영업비', fmt(R.fee)]].map(function (x) { return x.join('\t'); }).join('\n');
       try { navigator.clipboard.writeText(txt).then(function () { t.textContent = '복사됨 ✓'; setTimeout(function () { t.textContent = '결과 복사'; }, 1500); }); } catch (x) {}
     }
   });
+
+  /* ---------- 계약서 PDF → 계산기 자동 채우기 (글자 있는 PDF는 바로 읽고, 스캔본은 OCR) ---------- */
+  S.ccPdf = { busy: false, msg: '', got: '' };
+  function ccLoadScript(src) { return new Promise(function (ok, no) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = function () { no(new Error('라이브러리 로드 실패: ' + src)); }; document.head.appendChild(s); }); }
+  function ccPdfLib() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    return ccLoadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js').then(function () {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; return window.pdfjsLib; });
+  }
+  var ccOcrWorker = null;
+  function ccOcr() {
+    if (ccOcrWorker) return ccOcrWorker;
+    return (ccOcrWorker = (window.Tesseract ? Promise.resolve() : ccLoadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'))
+      .then(function () { return window.Tesseract.createWorker('kor+eng'); }));
+  }
+  function ccStatus(msg) { S.ccPdf.msg = msg; var el = $('ccPdfMsg'); if (el) el.innerHTML = msg; }
+  function ccPageText(pdf, n, ocr, psm) {
+    return pdf.getPage(n).then(function (pg) {
+      if (!ocr) return pg.getTextContent().then(function (tc) { return tc.items.map(function (i) { return i.str + (i.hasEOL ? '\n' : ' '); }).join(''); });
+      var vp0 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(3, 1700 / vp0.width) });
+      var cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
+      return pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise
+        .then(function () { return ccOcr(); }).then(function (w) { return w.setParameters({ tessedit_pageseg_mode: psm || '3' }).then(function () { return w.recognize(cv); }); }).then(function (r) { return r.data.text; });
+    });
+  }
+  // OCR 글자에서 값 뽑기
+  function ccMoney(s) { var m = /\d{1,3}(?:[.,]\d{3})+|\d{4,}/.exec(s || ''); return m ? Number(m[0].replace(/[.,]/g, '')) : 0; }
+  function ccParse(t1, t2, all) {
+    var T = (t1 + '\n' + t2), out = {}, m;
+    var A = T + '\n' + all;
+    if ((m = /발[ \t]*전[ \t]*소[ \t]*명[ \t]*[:：|]?[ \t]*([가-힣A-Za-z0-9()][^\n|]*)/.exec(A))) out.name = m[1].replace(/\s{2,}.*/, '').trim();
+    if ((m = /([가-힣A-Za-z0-9()]+)\s*태양광\s*발전\s*설비\s*구/.exec(A)) && (!out.name || out.name.length < 2)) out.name = m[1] + ' 태양광발전소';
+    if (!out.name && (m = /상\s*호\s*[:：]\s*([가-힣A-Za-z0-9()]+태양광\s*발전소)/.exec(A))) out.name = m[1];
+    if (!out.name && (m = /\n\s*[|]?\s*([가-힣]{1,10}\s*태양광\s*발전소)/.exec(t1))) out.name = m[1];
+    if ((m = /설\s*[치비]\s*용\s*량[^\d\n]{0,12}([\d,]+(?:\.\d+)?)\s*k?w/i.exec(A)) || (m = /(\d+\.\d+)\s*k\s*w/i.exec(A))) out.cap = m[1].replace(/,/g, '');
+    if ((m = /(20\d{2})\s*[-.\/년]\s*(\d{1,2})\s*[-.\/월]\s*(\d{1,2})/.exec(t1)) || (m = /(20\d{2})-(\d{2})-(\d{2})/.exec(t2))) out.date = m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+    if ((m = /공\s*급\s*가\s*액?\s*[:：]?\s*([^\n]{0,40})/.exec(T))) { var v = ccMoney(m[1]); if (v) out.supply = v; }
+    // 특약: "계약단가는 930,000원/kW" → 정산 용량 = 공급가 ÷ 계약단가
+    if ((m = /계\s*약\s*단\s*가[^\d\n]{0,12}(\d{3}[.,]\d{3})/.exec(T)) || (m = /(\d{3}[.,]\d{3})\s*\S{0,2}\s*\/\s*kw/i.exec(T))) { out.unit = Number(m[1].replace(/[.,]/g, '')); if (out.supply && out.unit) { var cc = Math.round(out.supply / out.unit * 1000) / 1000; if (cc > 0) out.capCalc = String(cc); } }
+    if (/한\s*화/.test(T)) out.grade = '2등급';
+    else if (/진코|jinko|트리나|trina|론지|longi|라이젠|risen|JA\s*solar|캐나디안|canadian/i.test(T)) out.grade = '중국산';
+    out.kind = /상\s*환\s*일\s*정\s*표/.test(all) ? '팩토링' : '현금공사';
+    return out;
+  }
+  function ccReadPdf(file) {
+    if (!file || S.ccPdf.busy) return;
+    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { ccStatus('<span style="color:var(--red)">PDF 파일만 올릴 수 있습니다.</span>'); return; }
+    S.ccPdf.busy = true; ccStatus('📄 ' + h(file.name) + ' 여는 중…');
+    var pdf, N, scanned = false;
+    file.arrayBuffer().then(function (buf) { return ccPdfLib().then(function (lib) { return lib.getDocument({ data: buf }).promise; }); })
+      .then(function (p) { pdf = p; N = pdf.numPages; return Promise.all([ccPageText(pdf, 1), N > 1 ? ccPageText(pdf, 2) : '']); })
+      .then(function (t) {
+        if ((t[0] + t[1]).replace(/\s/g, '').length > 60) {   // 글자 있는 PDF
+          var ps = []; for (var i = 3; i <= N; i++) ps.push(ccPageText(pdf, i));
+          return Promise.all(ps).then(function (rest) { return [t[0], t[1], rest.join('\n')]; });
+        }
+        scanned = true;   // 스캔본 → 1·2쪽 + 맨 뒤 2쪽(상환일정표 확인) OCR
+        ccStatus('🔍 스캔된 계약서라 글자 인식(OCR) 중… 처음엔 한글 인식 데이터를 받느라 20~40초 걸릴 수 있어요');
+        var a, b;
+        return ccPageText(pdf, 1, true, '11').then(function (x) { a = x; ccStatus('🔍 1쪽 인식 완료 · 2쪽 인식 중…'); return N > 1 ? ccPageText(pdf, 2, true) : ''; })
+          .then(function (x) { b = x; ccStatus('🔍 2쪽 인식 완료 · 3쪽 인식 중…'); return N > 2 ? ccPageText(pdf, 3, true, '11') : ''; })
+          .then(function (x) { var p3 = x; var tail = []; for (var i = Math.max(4, N - 1); i <= N; i++) tail.push(i); ccStatus('🔍 3쪽 인식 완료 · 뒤쪽(상환일정표) 확인 중…');
+            return tail.reduce(function (pr, i) { return pr.then(function (acc) { return ccPageText(pdf, i, true).then(function (x) { return acc + '\n' + x; }); }); }, Promise.resolve(p3)); })
+          .then(function (rest) { return [a, b, rest]; });
+      })
+      .then(function (t) {
+        window.__ccText = t;   // 인식된 글자 (문제 생기면 콘솔에서 확인용)
+        var r = ccParse(t[0], t[1], t[0] + t[1] + t[2]), c = S.cc, got = [];
+        if (r.name) { c.name = r.name; got.push(r.name); }
+        if (r.cap) { c.cap = r.cap; got.push('설치용량 ' + r.cap + 'kW'); }
+        if (r.capCalc && Math.abs(+r.capCalc - +(r.cap || 0)) > 0.0001) { c.capCalc = r.capCalc; got.push('정산 용량 ' + r.capCalc + 'kW (특약 ' + fmt(r.unit) + '원/kW 기준)'); } else c.capCalc = '';
+        if (r.date) { c.date = r.date; got.push('계약일 ' + r.date); }
+        if (r.supply) { c.supply = Number(r.supply).toLocaleString('ko-KR'); got.push('공급가 ' + fmt(r.supply)); }
+        if (r.grade) { c.grade = r.grade; got.push('모듈 ' + r.grade); }
+        c.kind = r.kind; got.push(r.kind + (r.kind === '팩토링' ? ' (상환일정표 있음)' : ''));
+        c.inEdited = false; c.inPrice = '';
+        S.ccPdf.busy = false;
+        S.ccPdf.msg = '✓ <b>' + h(file.name) + '</b>' + (scanned ? ' (스캔본 OCR)' : '') + '에서 읽음: ' + h(got.join(' · ')) +
+          '<br><span style="color:var(--amber)">영업지사는 직접 선택하세요. 읽은 값은 꼭 계약서와 한 번 대조해 주세요.</span>';
+        render();
+      })
+      .catch(function (e) { S.ccPdf.busy = false; ccStatus('<span style="color:var(--red)">PDF를 읽지 못했습니다: ' + h((e && e.message) || e) + '</span>'); });
+  }
+  function ccDropHtml() {
+    return '<label id="ccDrop" for="ccFile" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px;border:2px dashed #9DB8E8;border-radius:12px;background:#F7FAFF;cursor:pointer;text-align:center">' +
+      '<span style="font-size:15px;font-weight:700;color:#1D4ED8">📄 계약서 PDF를 여기에 끌어다 놓으세요</span>' +
+      '<span class="muted" style="font-size:12.5px">또는 클릭해서 선택 · 발전소명 / 설치용량 / 계약일 / 공급가 / 특약 계약단가 / 모듈 / 상환일정표(팩토링) 자동 입력</span>' +
+      '<input id="ccFile" type="file" accept="application/pdf,.pdf" style="display:none"></label>' +
+      '<div id="ccPdfMsg" style="font-size:13px;line-height:1.6">' + (S.ccPdf.msg || '') + '</div>';
+  }
+  document.addEventListener('change', function (e) { if (e.target.id === 'ccFile') { ccReadPdf(e.target.files[0]); e.target.value = ''; } });
+  document.addEventListener('dragover', function (e) { var z = e.target.closest && e.target.closest('#ccDrop'); if (z) { e.preventDefault(); z.style.background = '#E6EEFF'; } });
+  document.addEventListener('dragleave', function (e) { var z = e.target.closest && e.target.closest('#ccDrop'); if (z) z.style.background = '#F7FAFF'; });
+  document.addEventListener('drop', function (e) { var z = e.target.closest && e.target.closest('#ccDrop'); if (!z) return; e.preventDefault(); z.style.background = '#F7FAFF'; var f = e.dataTransfer && e.dataTransfer.files[0]; ccReadPdf(f); });
 
   /* ---------- 이벤트 ---------- */
   document.addEventListener('click', function (e) {
