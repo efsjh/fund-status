@@ -1359,7 +1359,7 @@ body.embed main{padding:20px 24px 32px}
     var sel = function (k, opts) { return '<span class="box" style="min-height:42px;padding-right:8px"><select id="cc_' + k + '" data-cc="' + k + '" style="width:100%;border:0;background:transparent;font-size:14px;outline:none">' + opts.map(function (o) { o = [].concat(o); return '<option value="' + h(o[0]) + '"' + (c[k] === o[0] ? ' selected' : '') + '>' + h(o[1] || o[0]) + '</option>'; }).join('') + '</select></span>'; };
     return '<section class="card sec"><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><h2 style="margin:0">계약 단가 및 정산 계산기</h2>' +
         '<span style="display:flex;gap:8px"><button class="tab" data-ccclear="1" style="min-height:34px">초기화</button><button class="tab on" data-cccopy="1" style="min-height:34px">결과 복사</button></span></div>' +
-      ccDropHtml() +
+      ccErpCard() + ccDropHtml() + ccCompare() +
       '<div id="ccRes" style="display:flex;flex-direction:column;gap:10px">' + ccResultHtml() + '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:14px 16px">' +
         fld('name', '발전소명', '', inp('name', '예: 설희 태양광')) +
@@ -1389,7 +1389,7 @@ body.embed main{padding:20px 24px 32px}
   document.addEventListener('click', function (e) {
     var t = e.target.closest('button'); if (!t) return;
     if (t.dataset.ccreset) { e.preventDefault(); S.cc.inEdited = false; S.cc.inPrice = ''; render(); }
-    else if (t.dataset.ccclear) { S.cc = { name: '', cap: '', capCalc: '', date: '', supply: '', br: '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '', inEdited: false }; S.ccPdf.msg = ''; render(); }
+    else if (t.dataset.ccclear) { S.cc = { name: '', cap: '', capCalc: '', date: '', supply: '', br: '', grade: '2등급', kind: '현금공사', method: 'price', perKw: '', inPrice: '', inEdited: false, site: '', erp: null, pdf: null }; S.ccPdf.msg = ''; render(); }
     else if (t.dataset.cccopy) {
       var R = ccCalc(), c = S.cc, txt = [['발전소', c.name], ['설치용량', c.cap + ' kW'], ['정산용량', R.cap + ' kW'], ['영업지사', c.br], ['모듈등급', c.grade], ['공사종류', c.kind], ['계약일', c.date],
         ['계약금액(공급가)', fmt(R.sup)], ['계약단가/kW', fmt(R.unit)], ['입금가/kW', fmt(R.inKw) + (c.inEdited ? ' (직접 수정)' : '')], ['입금가 합계', fmt(R.inTot)], ['영업비/kW', fmt(R.feeKw)], ['영업비', fmt(R.fee)]].map(function (x) { return x.join('\t'); }).join('\n');
@@ -1431,6 +1431,8 @@ body.embed main{padding:20px 24px 32px}
     if (!out.name && (m = /상\s*호\s*[:：]\s*([가-힣A-Za-z0-9()]+태양광\s*발전소)/.exec(A))) out.name = m[1];
     if (!out.name && (m = /\n\s*[|]?\s*([가-힣]{1,10}\s*태양광\s*발전소)/.exec(t1))) out.name = m[1];
     if ((m = /설\s*[치비]\s*용\s*량[^\d\n]{0,12}([\d,]+(?:\.\d+)?)\s*k?w/i.exec(A)) || (m = /(\d+\.\d+)\s*k\s*w/i.exec(A))) out.cap = m[1].replace(/,/g, '');
+    if (!out.cap && (m = /(?:^|\n)\s*(\d{2,4}(?:\.\d+)?)\s*\n?\s*k\s*w\s*(?:\n|$)/i.exec(t2))) out.cap = m[1];
+    if (!out.cap && (m = /설\s*치\s*용\s*량[\s\S]{0,40}?(\d{2,4}(?:\.\d+)?)\s*k\s*w/i.exec(A))) out.cap = m[1];
     if ((m = /(20\d{2})\s*[-.\/년]\s*(\d{1,2})\s*[-.\/월]\s*(\d{1,2})/.exec(t1)) || (m = /(20\d{2})-(\d{2})-(\d{2})/.exec(t2))) out.date = m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
     if ((m = /공\s*급\s*가\s*액?\s*[:：]?\s*([^\n]{0,40})/.exec(T))) { var v = ccMoney(m[1]); if (v) out.supply = v; }
     // 특약: "계약단가는 930,000원/kW" → 정산 용량 = 공급가 ÷ 계약단가
@@ -1455,7 +1457,7 @@ body.embed main{padding:20px 24px 32px}
         scanned = true;   // 스캔본 → 1·2쪽 + 맨 뒤 2쪽(상환일정표 확인) OCR
         ccStatus('🔍 스캔된 계약서라 글자 인식(OCR) 중… 처음엔 한글 인식 데이터를 받느라 20~40초 걸릴 수 있어요');
         var a, b;
-        return ccPageText(pdf, 1, true, '11').then(function (x) { a = x; ccStatus('🔍 1쪽 인식 완료 · 2쪽 인식 중…'); return N > 1 ? ccPageText(pdf, 2, true) : ''; })
+        return ccPageText(pdf, 1, true, '11').then(function (x) { a = x; ccStatus('🔍 1쪽 인식 완료 · 2쪽 인식 중…'); return N > 1 ? ccPageText(pdf, 2, true).then(function (p2) { return ccPageText(pdf, 2, true, '11').then(function (p2b) { return p2 + '\n' + p2b; }); }) : ''; })
           .then(function (x) { b = x; ccStatus('🔍 2쪽 인식 완료 · 3쪽 인식 중…'); return N > 2 ? ccPageText(pdf, 3, true, '11') : ''; })
           .then(function (x) { var p3 = x; var tail = []; for (var i = Math.max(4, N - 1); i <= N; i++) tail.push(i); ccStatus('🔍 3쪽 인식 완료 · 뒤쪽(상환일정표) 확인 중…');
             return tail.reduce(function (pr, i) { return pr.then(function (acc) { return ccPageText(pdf, i, true).then(function (x) { return acc + '\n' + x; }); }); }, Promise.resolve(p3)); })
@@ -1463,26 +1465,27 @@ body.embed main{padding:20px 24px 32px}
       })
       .then(function (t) {
         window.__ccText = t;   // 인식된 글자 (문제 생기면 콘솔에서 확인용)
-        var r = ccParse(t[0], t[1], t[0] + t[1] + t[2]), c = S.cc, got = [];
-        if (r.name) { c.name = r.name; got.push(r.name); }
-        if (r.cap) { c.cap = r.cap; got.push('설치용량 ' + r.cap + 'kW'); }
-        if (r.capCalc && Math.abs(+r.capCalc - +(r.cap || 0)) > 0.0001) { c.capCalc = r.capCalc; got.push('정산 용량 ' + r.capCalc + 'kW (특약 ' + fmt(r.unit) + '원/kW 기준)'); } else c.capCalc = '';
-        if (r.date) { c.date = r.date; got.push('계약일 ' + r.date); }
-        if (r.supply) { c.supply = Number(r.supply).toLocaleString('ko-KR'); got.push('공급가 ' + fmt(r.supply)); }
-        if (r.grade) { c.grade = r.grade; got.push('모듈 ' + r.grade); }
-        c.kind = r.kind; got.push(r.kind + (r.kind === '팩토링' ? ' (상환일정표 있음)' : ''));
-        c.inEdited = false; c.inPrice = '';
+        var r = ccParse(t[0], t[1], t[0] + t[1] + t[2]), got = [];
+        if (r.name) got.push(r.name);
+        if (r.cap) got.push('설치용량 ' + r.cap + 'kW');
+        if (r.capCalc) got.push('정산 용량 ' + r.capCalc + 'kW (특약 ' + fmt(r.unit) + '원/kW 기준)');
+        if (r.date) got.push('계약일 ' + r.date);
+        if (r.supply) got.push('공급가 ' + fmt(r.supply));
+        if (r.grade) got.push('모듈 ' + r.grade);
+        got.push(r.kind + (r.kind === '팩토링' ? ' (상환일정표 있음)' : ''));
+        var hadErp = !!S.cc.erp;
+        ccApplyPdf(r, file.name, scanned, t.join('\n'));
         S.ccPdf.busy = false;
         S.ccPdf.msg = '✓ <b>' + h(file.name) + '</b>' + (scanned ? ' (스캔본 OCR)' : '') + '에서 읽음: ' + h(got.join(' · ')) +
-          '<br><span style="color:var(--amber)">영업지사는 직접 선택하세요. 읽은 값은 꼭 계약서와 한 번 대조해 주세요.</span>';
+          '<br><span style="color:var(--amber)">' + (S.cc.erp ? (hadErp ? 'ERP 현장관리 값을 기준으로 두고, 아래 대조표에서 계약서 값과 비교합니다.' : 'ERP 현장관리에서 「' + h(S.cc.erp.name) + '」을(를) 자동으로 찾아 불러왔습니다. 아래 대조표를 확인하세요.') : 'ERP 현장관리에서 현장을 선택하면 계약서 값과 대조할 수 있습니다. 읽은 값은 계약서와 한 번 대조해 주세요.') + '</span>';
         render();
       })
       .catch(function (e) { S.ccPdf.busy = false; ccStatus('<span style="color:var(--red)">PDF를 읽지 못했습니다: ' + h((e && e.message) || e) + '</span>'); });
   }
   function ccDropHtml() {
     return '<label id="ccDrop" for="ccFile" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px;border:2px dashed #9DB8E8;border-radius:12px;background:#F7FAFF;cursor:pointer;text-align:center">' +
-      '<span style="font-size:15px;font-weight:700;color:#1D4ED8">📄 계약서 PDF를 여기에 끌어다 놓으세요</span>' +
-      '<span class="muted" style="font-size:12.5px">또는 클릭해서 선택 · 발전소명 / 설치용량 / 계약일 / 공급가 / 특약 계약단가 / 모듈 / 상환일정표(팩토링) 자동 입력</span>' +
+      '<span style="font-size:15px;font-weight:700;color:#1D4ED8">② 📄 계약서 PDF를 여기에 끌어다 놓으세요</span>' +
+      '<span class="muted" style="font-size:12.5px">또는 클릭해서 선택 · 설치용량 / 계약일 / 공급가 / 특약 계약단가(정산 용량) / 상환일정표(팩토링)를 읽어 ERP 값과 대조</span>' +
       '<input id="ccFile" type="file" accept="application/pdf,.pdf" style="display:none"></label>' +
       '<div id="ccPdfMsg" style="font-size:13px;line-height:1.6">' + (S.ccPdf.msg || '') + '</div>';
   }
@@ -1490,6 +1493,122 @@ body.embed main{padding:20px 24px 32px}
   document.addEventListener('dragover', function (e) { var z = e.target.closest && e.target.closest('#ccDrop'); if (z) { e.preventDefault(); z.style.background = '#E6EEFF'; } });
   document.addEventListener('dragleave', function (e) { var z = e.target.closest && e.target.closest('#ccDrop'); if (z) z.style.background = '#F7FAFF'; });
   document.addEventListener('drop', function (e) { var z = e.target.closest && e.target.closest('#ccDrop'); if (!z) return; e.preventDefault(); z.style.background = '#F7FAFF'; var f = e.dataTransfer && e.dataTransfer.files[0]; ccReadPdf(f); });
+
+  /* ---------- 계산기: ERP 현장관리에서 불러오기 + 계약서 PDF와 대조 ---------- */
+  var CC_CN = /\bJA\b|JA\s*solar|trina|트리나|jinko|진코|longi|론지|risen|라이젠|canadian|캐나디안|astronergy|아스트로너지|tongwei|통웨이|DMEGC|aiko|아이코|seraphim|세라핌|suntech|썬텍/i;
+  function ccSites() { return ((S.sites && S.sites.items) || []).filter(function (x) { return x.name; }); }
+  function ccSupplyOf(it) { var a = ccNum(it.amount); return a ? Math.round(a / 1.1) : 0; }   // ERP 계약금액은 VAT 포함 → 공급가
+  function ccKindOf(it) { return /팩토링/.test(String(it.productType || '') + String(it.product || '')) ? '팩토링' : '현금공사'; }
+  // 모듈등급: JA Solar·Trina 등 중국 회사 = 중국산 / 한화큐셀 = 국산 → ERP 모듈등급(무등급·2등급) 그대로
+  function ccGradeOf(it) {
+    var mk = String(it.modMaker || ''), g = String(it.modGrade || '').replace(/\s/g, '');
+    if (CC_CN.test(mk)) return { g: '중국산', why: mk + ' → 중국 회사라 중국산' };
+    if (/한화|q\.?\s*cells|큐셀/i.test(mk)) {
+      if (g === '무등급' || g === '2등급') return { g: g, why: mk + ' (국산) · ERP 모듈등급 ' + g };
+      return { g: '2등급', why: mk + ' (국산) · ERP에 모듈등급이 없어 2등급으로 가정 — 확인 필요', warn: true };
+    }
+    if (/^(무등급|2등급|중국산)$/.test(g)) return { g: g, why: (mk || '제조사 미입력') + ' · ERP 모듈등급 ' + g };
+    return { g: '', why: (mk || '제조사 미입력') + ' — 등급을 판단할 수 없어 직접 선택하세요', warn: true };
+  }
+  function ccBranchOf(name) {
+    var L = ccBranches(), n = String(name || '').trim(), k = function (s) { return String(s).replace(/\s|\(kw단가\)/gi, ''); };
+    if (!n) return '';
+    if (L.indexOf(n) >= 0) return n;
+    var hit = L.filter(function (b) { return k(b) === k(n) && !/kw단가/i.test(b); })[0] || L.filter(function (b) { return k(b) === k(n); })[0] ||
+      L.filter(function (b) { return k(b).indexOf(k(n)) >= 0 || k(n).indexOf(k(b)) >= 0; })[0];
+    return hit || '';
+  }
+  function ccApplyErp(it) {
+    var c = S.cc, gr = ccGradeOf(it);
+    c.erp = it; c.site = it.name; c.name = it.name;
+    c.cap = it.installKw ? String(it.installKw) : ''; c.capCalc = '';
+    var sp = ccSupplyOf(it); c.supply = sp ? sp.toLocaleString('ko-KR') : '';
+    c.date = /^\d{4}-\d{2}-\d{2}/.test(it.contractDate || '') ? String(it.contractDate).slice(0, 10) : '';
+    c.br = ccBranchOf(it.branch); if (gr.g) c.grade = gr.g; c.kind = ccKindOf(it);
+    c.inEdited = false; c.inPrice = '';
+    if (c.pdf && c.pdf.capCalc) c.capCalc = c.pdf.capCalc;   // 특약 계약단가 기준 정산 용량은 계약서에서
+  }
+  function ccFindErpInText(text) {
+    var T = String(text || '').replace(/\s/g, ''), best = null;
+    ccSites().forEach(function (it) { var n = String(it.name).replace(/\s|태양광|발전소/g, ''); if (n.length >= 2 && T.indexOf(n) >= 0 && (!best || n.length > best.n.length)) best = { it: it, n: n }; });
+    return best && best.it;
+  }
+  // PDF에서 읽은 값 반영: ERP 현장이 정해져 있으면 ERP 값을 기준으로 두고 PDF는 대조·보조로만
+  function ccApplyPdf(r, fileName, scanned, text) {
+    var c = S.cc; c.pdf = r; c.pdfName = fileName; c.pdfScanned = scanned;
+    if (!c.erp) { var m = ccFindErpInText(text); if (m) { ccApplyErp(m); c.autoMatched = true; } }
+    if (c.erp) { if (r.capCalc) c.capCalc = r.capCalc; return; }
+    if (r.name) c.name = r.name; if (r.cap) c.cap = r.cap;
+    c.capCalc = r.capCalc && Math.abs(+r.capCalc - +(r.cap || 0)) > 0.0001 ? r.capCalc : '';
+    if (r.date) c.date = r.date; if (r.supply) c.supply = Number(r.supply).toLocaleString('ko-KR');
+    if (r.grade) c.grade = r.grade; c.kind = r.kind; c.inEdited = false; c.inPrice = '';
+  }
+  function ccErpCard() {
+    var c = S.cc, it = c.erp, list = ccSites();
+    var pick = '<label class="field" style="flex:1 1 320px"><span>① ERP 현장관리에서 현장 선택 <span class="chip" style="font-size:11px;padding:0 6px;background:#EBF5E4;color:#276724">' + (S.sites ? list.length + '곳' : (S.err.getSites ? '불러오기 실패' : '불러오는 중…')) + '</span></span>' +
+      '<span class="box" style="min-height:42px;padding-right:10px"><input id="ccSite" list="ccSiteList" autocomplete="off" placeholder="발전소명 입력해서 검색 (예: 소라지)" value="' + h(c.site || '') + '"></span>' +
+      '<datalist id="ccSiteList">' + list.map(function (x) { return '<option value="' + h(x.name) + '">' + h([x.branch, x.installKw ? x.installKw + 'kW' : '', x.status].filter(Boolean).join(' · ')) + '</option>'; }).join('') + '</datalist></label>';
+    if (!it) return '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">' + pick + '</div>';
+    var gr = ccGradeOf(it), kv = function (l, v, warn) { return '<div style="display:flex;flex-direction:column;gap:2px;min-width:120px;flex:1 1 120px"><span class="lbl">' + l + '</span><span style="font-size:14px;font-weight:600' + (warn ? ';color:var(--amber)' : '') + '">' + (v || '<span class="muted">—</span>') + '</span></div>'; };
+    var brHit = ccBranchOf(it.branch);
+    return '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">' + pick + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:12px 16px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface2)">' +
+        kv('발전소', h(it.name) + (c.autoMatched ? ' <span class="muted" style="font-weight:400">(PDF로 자동 선택)</span>' : '')) +
+        kv('설치용량', it.installKw ? h(it.installKw) + ' kW' : '') + kv('허가용량', it.permitKw ? h(it.permitKw) + ' kW' : '') +
+        kv('계약금액 (VAT 포함)', it.amount ? fmt(ccNum(it.amount)) : '') + kv('→ 공급가', it.amount ? fmt(ccSupplyOf(it)) : '') +
+        kv('영업지사', h(it.branch || '') + (it.branch && !brHit ? ' <span style="color:var(--red);font-weight:400">(단가표에 없음)</span>' : ''), it.branch && !brHit) +
+        kv('계약일', h(it.contractDate || '')) +
+        kv('모듈', h([it.modMaker, it.modW ? it.modW + 'W' : '', it.modQty ? '× ' + it.modQty : ''].filter(Boolean).join(' '))) +
+        kv('모듈등급', h(gr.g || '?') + ' <span class="muted" style="font-weight:400;font-size:12px">' + h(gr.why) + '</span>', gr.warn) +
+        kv('상품', h([it.productType, it.product].filter(Boolean).join(' / '))) +
+      '</div>';
+  }
+  function ccCompare() {
+    var c = S.cc, r = c.pdf, it = c.erp;
+    if (!r || !it) return '';
+    var gr = ccGradeOf(it), rows = [
+      ['cap', '설치용량 (kW)', it.installKw ? String(it.installKw) : '', r.cap || '', function (v) { return v; }],
+      ['supply', '공급가 (원)', ccSupplyOf(it) || '', r.supply || '', function (v) { return v ? fmt(v) : ''; }],
+      ['date', '계약일', String(it.contractDate || '').slice(0, 10), r.date || '', function (v) { return v; }],
+      ['grade', '모듈등급', gr.g, r.grade || '', function (v) { return v; }],
+      ['kind', '공사종류', ccKindOf(it), r.kind || '', function (v) { return v; }]
+    ];
+    var cur = { cap: c.cap, supply: ccNum(c.supply), date: c.date, grade: c.grade, kind: c.kind };
+    var same = function (k, a, b) { return k === 'cap' ? Math.abs(ccNum(a) - ccNum(b)) < 0.001 : k === 'supply' ? ccNum(a) === ccNum(b) : String(a) === String(b); };
+    var g = 'grid-template-columns:130px minmax(130px,1fr) minmax(130px,1fr) 70px';
+    var cell = function (k, src, v, f) {
+      if (v === '' || v == null) return '<span class="muted">—</span>';
+      var on = same(k, cur[k], v);
+      return '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><b class="num"' + (on ? ' style="color:var(--green,#16a34a)"' : '') + '>' + h(f(v)) + (on ? ' ✓' : '') + '</b>' +
+        (on ? '' : '<button class="tab" data-ccuse="' + k + '" data-ccsrc="' + src + '" style="min-height:26px;padding:0 8px;font-size:12px">이 값 사용</button>') + '</span>';
+    };
+    var diff = 0;
+    var body = rows.map(function (x) {
+      var both = x[2] !== '' && x[3] !== '', ok = !both || same(x[0], x[2], x[3]); if (!ok) diff++;
+      return '<div class="row" style="' + g + ';font-size:14px' + (ok ? '' : ';background:#FFF7ED') + '"><span style="font-weight:600">' + x[1] + '</span>' + cell(x[0], 'erp', x[2], x[4]) + cell(x[0], 'pdf', x[3], x[4]) +
+        '<span style="font-size:12.5px;font-weight:700;color:' + (ok ? 'var(--sub2)' : 'var(--red)') + '">' + (both ? (ok ? '일치' : '다름') : '') + '</span></div>';
+    }).join('');
+    var extra = r.capCalc ? '<div class="muted" style="font-size:12.5px">계약서 특약 계약단가 ' + fmt(r.unit) + '원/kW → 정산 용량 ' + h(r.capCalc) + 'kW 로 계산에 반영했습니다.</div>' : '';
+    return '<div style="display:flex;flex-direction:column;gap:6px"><div style="font-weight:700;font-size:14px">ERP 현장관리 ↔ 계약서 대조 ' + (diff ? '<span style="color:var(--red)">· 다른 값 ' + diff + '개</span>' : '<span style="color:var(--sub2);font-weight:400">· 모두 일치</span>') + '</div>' +
+      '<div class="scroll"><div style="min-width:560px"><div class="head" style="' + g + '"><span class="th">항목</span><span class="th">ERP 현장관리</span><span class="th">계약서 PDF</span><span class="th"></span></div>' + body + '</div></div>' + extra + '</div>';
+  }
+  function ccPickSite(v) {
+    var it = ccSites().filter(function (x) { return x.name === v; })[0];
+    if (!it) return false;
+    S.cc.autoMatched = false; ccApplyErp(it); render();
+    var q = $('ccSite'); if (q) q.blur();
+    return true;
+  }
+  document.addEventListener('input', function (e) { if (e.target.id === 'ccSite') ccPickSite(e.target.value); });
+  document.addEventListener('change', function (e) { if (e.target.id === 'ccSite') ccPickSite(e.target.value); });
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button'); if (!t || !t.dataset.ccuse) return;
+    var c = S.cc, k = t.dataset.ccuse, it = c.erp || {}, r = c.pdf || {};
+    var erpV = { cap: String(it.installKw || ''), supply: ccSupplyOf(it), date: String(it.contractDate || '').slice(0, 10), grade: ccGradeOf(it).g, kind: ccKindOf(it) }[k];
+    var v = t.dataset.ccsrc === 'erp' ? erpV : r[k];
+    if (k === 'supply') v = Number(v).toLocaleString('ko-KR');
+    c[k] = String(v); if (k === 'grade' || k === 'kind' || k === 'date') { c.inEdited = c.inEdited; } render();
+  });
 
   /* ---------- 이벤트 ---------- */
   document.addEventListener('click', function (e) {
