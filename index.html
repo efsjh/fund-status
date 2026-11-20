@@ -462,7 +462,26 @@ body.embed main{padding:20px 24px 32px}
     out.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
     return (S.grpC = out);
   }
-  function groupOf() { var o = {}; groups().forEach(function (g) { g.members.forEach(function (m) { o[m.id] = g; }); }); return o; }
+  function groupOf() { if (S.gofC && S.grpC) return S.gofC; var o = {}; groups().forEach(function (g) { g.members.forEach(function (m) { o[m.id] = g; }); }); return (S.gofC = o); }
+  // 매칭된 ERP 발전소 이름 표시: 자금현황에서 병합한 호기는 병합 이름(예: 선호1~2호)으로 묶어서 보여줌
+  function hitNames(hits) {
+    var gi = groupOf(), out = [], used = {};
+    (hits || []).forEach(function (e) {
+      var g = e.src === '채권' ? gi[e.id] : null;
+      if (!g) { if (out.indexOf(e.name) < 0) out.push(e.name); return; }
+      if (used[g.id]) return; used[g.id] = 1;
+      var inG = hits.filter(function (x) { return x.src === '채권' && gi[x.id] === g; });
+      var t = inG.length >= g.members.length ? g.name : g.name + ' 중 ' + inG.map(function (x) { return x.name; }).join(', ');
+      if (out.indexOf(t) < 0) out.push(t);
+    });
+    return out;
+  }
+  function hitGroup(hits) {   // 매칭된 발전소가 전부 한 병합에 들어 있으면 그 병합
+    var gi = groupOf(), g = null;
+    if (!hits || !hits.length) return null;
+    for (var i = 0; i < hits.length; i++) { var x = hits[i].src === '채권' ? gi[hits[i].id] : null; if (!x || (g && g !== x)) return null; g = x; }
+    return g;
+  }
   // 묶은 발전소들의 시트 내역(계산서·수금·지출)을 날짜순으로 합침 — 계산서는 호기별로 각각 1건씩
   function groupSite(g) {
     var parts = [], miss = [];
@@ -514,13 +533,37 @@ body.embed main{padding:20px 24px 32px}
     S.gmMsg = ''; S.gmBusy = false; renderGroup();
     var q = $('gmQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   }
+  // 호기 번호를 모아 '선호1~3호' / '선호1~2,4호' 형식으로
+  function grpAutoName(ns) {
+    var base = null, nums = [], ok = true;
+    ns.forEach(function (n) {
+      var s = String(n || '').replace(/\s*(태양광)?\s*발전소$/, '').trim();
+      var m = /^(.*?)\s*(\d+)(?:\s*[~\-–]\s*(\d+))?\s*(?:호기?)?$/.exec(s);
+      if (!m) { ok = false; return; }
+      var b = m[1].trim();
+      if (base === null) base = b; else if (base !== b) ok = false;
+      var a = +m[2], z = m[3] ? +m[3] : a;
+      for (var k = a; k <= z && k - a < 50; k++) if (nums.indexOf(k) < 0) nums.push(k);
+    });
+    if (ok && base && nums.length) {
+      nums.sort(function (a, b) { return a - b; });
+      var parts = [], st = nums[0], pv = nums[0];
+      for (var i = 1; i <= nums.length; i++) {
+        if (i < nums.length && nums[i] === pv + 1) { pv = nums[i]; continue; }
+        parts.push(st === pv ? String(st) : st + '~' + pv);
+        if (i < nums.length) { st = pv = nums[i]; }
+      }
+      return base + parts.join(',') + '호';
+    }
+    var b0 = grpBase(ns[0]), same = ns.every(function (n) { return grpBase(n) === b0; });
+    return same && b0 ? b0 + ' (' + ns.length + '곳 통합)' : ns[0] + ' 외 ' + (ns.length - 1) + '곳';
+  }
   function closeGroup() { S.gm = null; var w = $('gmWrap'); if (w) w.remove(); }
   function gmAuto() {   // 이름을 직접 안 적었으면 고른 발전소로 자동 이름
     var G = S.gm; if (G.named) return;
     var ns = G.sel.map(function (id) { var it = byId('채권', id); return it ? it.name : ''; }).filter(Boolean);
     if (!ns.length) { G.name = ''; return; }
-    var b = grpBase(ns[0]), same = ns.every(function (n) { return grpBase(n) === b; });
-    G.name = same && b ? b + ' (' + ns.length + '곳 통합)' : ns[0] + ' 외 ' + (ns.length - 1) + '곳';
+    G.name = grpAutoName(ns);
   }
   function gmCands() {
     var G = S.gm, q = mkey(G.q), other = groupOf();
@@ -550,7 +593,7 @@ body.embed main{padding:20px 24px 32px}
     w.innerHTML = '<div class="mm card" role="dialog" aria-modal="true" aria-label="자금현황 병합">' +
       '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div style="display:flex;flex-direction:column;gap:4px"><span class="muted">채권관리는 그대로 · 이 화면에서만 합쳐 보기</span><b style="font-size:20px">' + (G.orig ? '자금현황 병합 수정' : '자금현황에서 병합') + '</b></div>' +
       '<button class="icon-btn" data-gact="close" aria-label="닫기"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
-      '<label class="field"><span>병합 이름 (발전소 선택 목록에 이 이름으로 나와요)</span><span class="box"><input id="gmName" autocomplete="off" placeholder="예: 조은목장 (1~3호 통합)" value="' + h(G.name) + '"' + dis + '></span></label>' +
+      '<label class="field"><span>병합 이름 (발전소 선택 목록에 이 이름으로 나와요)</span><span class="box"><input id="gmName" autocomplete="off" placeholder="예: 조은목장1~3호" value="' + h(G.name) + '"' + dis + '></span></label>' +
       '<label class="box"><span class="sr">ERP 채권관리 발전소 검색</span><input id="gmQ" type="search" autocomplete="off" placeholder="합칠 발전소 검색 (예: 조은목장)" value="' + h(G.q) + '"></label>' +
       '<div id="gmList" class="mm-list"></div>' +
       '<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">합칠 발전소 ' + picked.length + '곳' + (picked.length ? ' · 계약금액 합계 <span class="num">' + fmt(tot) + '</span>' : '') + '</span>' +
@@ -785,7 +828,7 @@ body.embed main{padding:20px 24px 32px}
   }
 
   S.sites = null; S.matches = null; S.midx = null; S.mres = null; S.mf = '전체'; S.mm = null; S.mmMsg = ''; S.mmBusy = false;
-  function resetMatchCache() { S.grpC = null; S.midx = null; S.mres = null; S.depo = null; S.erpL = null; S.sugC = null; S.newS = null; S.l2n = null; }
+  function resetMatchCache() { S.grpC = null; S.gofC = null; S.midx = null; S.mres = null; S.depo = null; S.erpL = null; S.sugC = null; S.newS = null; S.l2n = null; }
   function getIdx() { return S.midx || (S.midx = erpIndex(items(), S.sites && S.sites.items)); }
   function byId(src, id) {
     var L = src === '현장' ? (S.sites && S.sites.items) : items();
@@ -849,8 +892,9 @@ body.embed main{padding:20px 24px 32px}
     var n = String(name || '').trim();
     if (!n) return '<span class="muted">—</span>';
     if (!S.bonds) return '<span style="color:var(--teal);font-weight:600">' + h(n) + '</span>';
-    var r = resolve(n), ms = mstate(n), tip = r.state === 'ok' ? 'ERP: ' + r.hits.map(function (x) { return x.name; }).join(', ') + (r.manual ? ' (직접 매칭)' : ' (자동)') : r.state === 'none' ? 'X' : ms === 'wait' ? '계약금 대기 — ERP 현장관리에 등록되면 매칭하세요' : (r.lost ? 'ERP에서 사라진 발전소: ' + r.lost.join(', ') : r.off ? '자금현황 발전소 목록에 없음(현장관리에만 있음): ' + r.off.join(', ') : 'ERP 채권관리·현장관리에서 못 찾음') + ' — 눌러서 매칭';
-    return '<button class="mchip" data-mm="' + h(n) + '" title="' + h(tip) + '" style="' + MCOL[ms] + '">' + (ms === 'ok' ? '✓ ' : ms === 'bad' ? '! ' : '') + h(n) + '</button>';
+    var r = resolve(n), ms = mstate(n), tip = r.state === 'ok' ? 'ERP: ' + hitNames(r.hits).join(', ') + (r.manual ? ' (직접 매칭)' : ' (자동)') : r.state === 'none' ? 'X' : ms === 'wait' ? '계약금 대기 — ERP 현장관리에 등록되면 매칭하세요' : (r.lost ? 'ERP에서 사라진 발전소: ' + r.lost.join(', ') : r.off ? '자금현황 발전소 목록에 없음(현장관리에만 있음): ' + r.off.join(', ') : 'ERP 채권관리·현장관리에서 못 찾음') + ' — 눌러서 매칭';
+    var hn = ms === 'ok' ? hitNames(r.hits) : [], sub = hn.length && hn.join(', ') !== n && hitGroup(r.hits) ? '<span class="fs-sub" style="color:#075985">→ ' + h(hn.join(', ')) + '</span>' : '';
+    return '<button class="mchip" data-mm="' + h(n) + '" title="' + h(tip) + '" style="' + MCOL[ms] + '">' + (ms === 'ok' ? '✓ ' : ms === 'bad' ? '! ' : '') + h(n) + '</button>' + sub;
   }
   function matchStats(L) {
     var names = {}, st = { ok: [], bad: [], wait: [], none: [] };
@@ -904,8 +948,17 @@ body.embed main{padding:20px 24px 32px}
       });
       if (best < 9) out.push({ e: e, sc: best });
     });
-    out.sort(function (a, b) { return a.sc - b.sc || (a.e.src === b.e.src ? 0 : a.e.src === '채권' ? -1 : 1) || (a.e.name.length - b.e.name.length); });
-    return (S.sugC[name] = out.slice(0, 10));
+    // 자금현황 병합: 이름이 같거나(1~3호), 기록 이름의 호기가 모두 그 병합에 들어 있으면 맨 위로
+    var parts = mexpand(k) || [k];
+    groups().forEach(function (g) {
+      var gk = mkey(g.name), mk = g.members.map(function (m) { return mkey(m.name); });
+      var all = parts.every(function (p) { return mk.indexOf(p) >= 0 || mk.indexOf(p.replace(/호$/, '')) >= 0; });
+      var sc = gk === k || (all && parts.length === mk.length) ? 0 : all ? 1 : gk.indexOf(base) === 0 || (base.length >= 2 && mk.some(function (x) { return x.indexOf(base) === 0; })) ? 2 : 9;
+      if (sc < 9) out.push({ e: { src: '병합', id: g.id, name: g.name, status: '자금현황 병합 ' + g.members.length + '곳', grp: true }, sc: sc - 0.5 });
+    });
+    out.sort(function (a, b) { return a.sc - b.sc || (a.e.src === b.e.src ? 0 : a.e.src === '병합' ? -1 : b.e.src === '병합' ? 1 : a.e.src === '채권' ? -1 : 1) || (a.e.name.length - b.e.name.length); });
+    // 병합에 들어간 호기는 병합 항목이 있으면 개별로도 남겨 두되 뒤로
+    return (S.sugC[name] = out.slice(0, 12));
   }
   function bmRows(st) {
     var B = S.bm, q = mkey(B.q), L = ({ bad: st.bad, wait: st.wait, ok: st.ok, none: st.none, all: st.bad.concat(st.wait, st.ok, st.none) }[B.grp] || st.bad).slice();
@@ -922,7 +975,7 @@ body.embed main{padding:20px 24px 32px}
     if (B.val[r.name] !== undefined) return B.val[r.name];
     if (r.st === 'ok' || r.st === 'none') return '';            // 이미 매칭됐거나 X인 건 그대로 (바꿀 때만 고름)
     var s = r.sug;
-    var sure = s.length && (s.length === 1 || s[0].sc === 0 || (s[0].sc <= 1 && s[1].sc > 1));
+    var sure = s.length && (s.length === 1 || s[0].sc <= 0 || (s[0].sc <= 1 && s[1].sc > 1));
     return sure ? s[0].e.src + '|' + s[0].e.id : '';
   }
   function bulkTable(st) {
@@ -947,12 +1000,12 @@ body.embed main{padding:20px 24px 32px}
     var list = rows.slice(0, 300).map(function (r) {
       var v = bmVal(r), on = !!B.on[r.name] && !!v;
       var opts = opt('', r.st === 'ok' ? '그대로 두기 (매칭됨)' : r.st === 'none' ? '그대로 두기 (X)' : '— 고르기 —', v) + (r.st === 'none' ? '' : opt('X', 'X (발전소 아님)', v)) +
-        r.sug.map(function (x) { return opt(x.e.src + '|' + x.e.id, x.e.name + ' · ' + x.e.src + (x.e.status ? ' · ' + x.e.status : '') + (x.e.merged ? ' · 병합' : ''), v); }).join('') +
+        r.sug.map(function (x) { var gx = !x.e.grp && x.e.src === '채권' ? groupOf()[x.e.id] : null; return opt(x.e.src + '|' + x.e.id, x.e.grp ? '★ ' + x.e.name + ' · ' + x.e.status + ' (호기 전체로 매칭)' : x.e.name + ' · ' + x.e.src + (x.e.status ? ' · ' + x.e.status : '') + (x.e.merged ? ' · 병합' : '') + (gx ? ' · ' + gx.name + '에 병합됨' : ''), v); }).join('') +
         (v && v !== 'X' && !r.sug.some(function (x) { return x.e.src + '|' + x.e.id === v; }) ? opt(v, (B.lbl && B.lbl[v]) || v, v) : '');
       return '<div class="row" style="' + g + ';font-size:13px' + (on ? ';background:#F2F5F0' : '') + '">' +
         '<span><input type="checkbox" data-bmon="' + h(r.name) + '"' + (on ? ' checked' : '') + (v ? '' : ' disabled') + ' aria-label="' + h(r.name) + ' 선택" style="width:18px;height:18px"></span>' +
         '<span style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0"><button class="mchip" data-lgsite="' + h(r.name) + '" title="아래 일자별 기록에서 이 발전소 내역만 보기" style="' + MCOL[r.st] + (S.lgSite === r.name ? ';outline:2px solid #2F7A2C;outline-offset:1px' : '') + '">' + (S.lgSite === r.name ? '▼ ' : '') + h(r.name) + '</button>' +
-          (r.st === 'ok' ? '<span class="muted" style="font-size:12px">→ ' + h(resolve(r.name).hits.map(function (x) { return x.name; }).join(', ')) + '</span>' : '') + '</span>' +
+          (r.st === 'ok' ? '<span class="muted" style="font-size:12px">→ ' + h(hitNames(resolve(r.name).hits).join(', ')) + '</span>' : '') + '</span>' +
         '<span class="num muted" style="text-align:right">' + r.cnt + '건</span>' +
         '<span style="min-width:0"><select class="sel" data-bmsel="' + h(r.name) + '" style="width:100%;min-height:36px;font-size:13px' + (v ? ';border-color:#3F9A2E' : '') + '" aria-label="' + h(r.name) + ' 매칭할 ERP 발전소">' + opts + '</select></span>' +
         '<button class="le-btn" data-mm="' + h(r.name) + '" aria-label="' + h(r.name) + ' 직접 검색해서 매칭" title="목록에 없으면 직접 검색"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button></div>';
@@ -969,7 +1022,13 @@ body.embed main{padding:20px 24px 32px}
     rows.forEach(function (r) {
       var v = bmVal(r); if (!B.on[r.name] || !v) return;
       if (v === 'X') { items_.push({ name: r.name, none: true }); return; }
-      var p = v.split('|'), it = byId(p[0], p[1]);
+      var p = v.split('|');
+      if (p[0] === '병합') {
+        var g = groups().filter(function (x) { return x.id === p.slice(1).join('|'); })[0]; if (!g) return;
+        items_.push({ name: r.name, targets: collapseTargets(g.members.map(function (m) { return { src: '채권', id: m.id, name: m.name }; })) });
+        return;
+      }
+      var it = byId(p[0], p[1]);
       items_.push({ name: r.name, targets: collapseTargets([{ src: p[0], id: p[1], name: it ? it.name : '' }]) });
     });
     if (!items_.length) return;
@@ -1079,7 +1138,8 @@ body.embed main{padding:20px 24px 32px}
     var L = candList(), LIM = 80;
     el.innerHTML = L.slice(0, LIM).map(function (it) {
       var on = isSel(S.mm.src, it.id);
-      return '<button class="opt' + (on ? ' sel' : '') + '" data-madd="' + h(it.id) + '"><b>' + (on ? '✓ ' : '') + h(it.name) + (it.merged ? ' <span class="chip c-merge" style="font-size:11px;padding:1px 7px">' + h(mergeTxt(it)) + '</span>' : '') + '</b>' +
+      var gx = S.mm.src === '채권' ? groupOf()[it.id] : null;
+      return '<button class="opt' + (on ? ' sel' : '') + '" data-madd="' + h(it.id) + '"><b>' + (on ? '✓ ' : '') + h(it.name) + (it.merged ? ' <span class="chip c-merge" style="font-size:11px;padding:1px 7px">' + h(mergeTxt(it)) + '</span>' : '') + (gx ? ' <span class="chip c-fsg" style="font-size:11px;padding:1px 7px">' + h(gx.name) + ' 병합</span>' : '') + '</b>' +
         '<small class="num">' + h(it.status || '') + (it.inspectionDate ? ' · 사용전검사 ' + h(dateTxt(it)) : '') + '</small></button>';
     }).join('') + (L.length ? '' : '<div class="muted" style="padding:14px 10px">검색 결과가 없습니다. 이름을 줄여서 검색해 보세요.</div>') +
       (L.length > LIM ? '<div class="num muted" style="padding:8px 10px;font-size:12px">외 ' + (L.length - LIM) + '곳 · 이름을 더 입력하세요</div>' : '');
@@ -1089,7 +1149,7 @@ body.embed main{padding:20px 24px 32px}
     var w = $('mmWrap');
     if (!w) { w = document.createElement('div'); w.id = 'mmWrap'; w.className = 'mm-bg'; document.body.appendChild(w); }
     var r = resolve(m.name), cnt = S.sheets.ledger.filter(function (x) { return String(x.site || '').trim() === m.name; }).length;
-    var cur = r.state === 'ok' ? '<span class="chip" style="' + MCOL.ok + '">' + (r.manual ? '직접 매칭됨' : '자동 매칭됨') + '</span> ' + h(r.hits.map(function (x) { return x.name; }).join(', '))
+    var cur = r.state === 'ok' ? '<span class="chip" style="' + MCOL.ok + '">' + (r.manual ? '직접 매칭됨' : '자동 매칭됨') + '</span> ' + h(hitNames(r.hits).join(', '))
       : r.state === 'none' ? '<span class="chip" style="' + MCOL.none + '">X</span>'
       : '<span class="chip" style="' + MCOL.bad + '">미매칭</span>' + (r.lost ? ' ERP에서 사라짐: ' + h(r.lost.join(', ')) : r.off ? ' 자금현황 발전소 목록에 없음: ' + h(r.off.join(', ')) + ' <span class="muted">(현장관리에만 있음 · 채권관리에 등록되면 자동으로 다시 매칭돼요)</span>' : '');
     var siteN = S.sites ? S.sites.items.length : 0;
