@@ -469,7 +469,12 @@ body.embed main{padding:20px 24px 32px}
   function grpBase(n) { return String(n || '').replace(/\s*(태양광)?발전소$/, '').replace(/\s*[\d~,\-]+\s*호?(기)?$/, '').trim(); }
   function openGroup(mode) {
     var sel = allItems().filter(function (it) { return it.id === S.selId; })[0];
-    if (mode === 'edit' && sel && sel.fsGroup) S.gm = { orig: sel.name, name: sel.name, named: true, q: '', sel: sel.members.map(function (m) { return m.id; }) };
+    if (mode === 'edit' && sel && sel.fsGroup) {
+      // 예전 자동 이름("○○ 외 1곳", "(2곳 통합)")이면 새 방식(코튼1-2호)으로 바꿔서 보여줌 → 저장하면 이름이 바뀜
+      var oldAuto = / 외 \d+곳$|\(\d+곳 통합\)$/.test(sel.name);
+      S.gm = { orig: sel.name, name: sel.name, named: !oldAuto, q: '', sel: sel.members.map(function (m) { return m.id; }) };
+      if (oldAuto) gmAuto();
+    }
     else S.gm = { orig: '', name: '', named: false, q: sel ? grpBase(sel.name) : '', sel: sel && !sel.isNew && !sel.fsGroup ? [sel.id] : [] };
     S.gmMsg = ''; S.gmBusy = false; renderGroup();
     var q = $('gmQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
@@ -479,8 +484,36 @@ body.embed main{padding:20px 24px 32px}
     var G = S.gm; if (G.named) return;
     var ns = G.sel.map(function (id) { var it = byId('채권', id); return it ? it.name : ''; }).filter(Boolean);
     if (!ns.length) { G.name = ''; return; }
-    var b = grpBase(ns[0]), same = ns.every(function (n) { return grpBase(n) === b; });
-    G.name = same && b ? b + ' (' + ns.length + '곳 통합)' : ns[0] + ' 외 ' + (ns.length - 1) + '곳';
+    G.name = grpAutoName(ns);
+  }
+  // 호기 번호를 묶어 이름 만들기: 코튼1호+코튼2호 → 코튼1-2호, 1·2·3·5호 → 1-3·5호
+  function grpAutoName(ns) {
+    var order = [], by = {};
+    ns.forEach(function (n) {
+      var t = String(n || '').trim().replace(/\s*(태양광)?발전소$/, '');
+      var m = t.match(/^(.*?)(\s*)(\d+(?:\s*[~\-,·]\s*\d+)*)\s*호(?:기)?$/);
+      var base = m ? m[1].trim() : t, key = base || t;
+      if (!by[key]) { by[key] = { base: base, sp: m ? m[2] : '', nums: [], plain: !m }; order.push(key); }
+      if (!m) return;
+      by[key].plain = false;
+      m[3].split(/\s*[,·]\s*/).forEach(function (part) {
+        var r = part.split(/\s*[~\-]\s*/).map(Number);
+        if (r.length === 2 && r[1] >= r[0] && r[1] - r[0] < 200) for (var k = r[0]; k <= r[1]; k++) by[key].nums.push(k);
+        else r.forEach(function (x) { if (!isNaN(x)) by[key].nums.push(x); });
+      });
+    });
+    return order.map(function (key) {
+      var g = by[key];
+      if (!g.nums.length) return g.base;
+      var u = g.nums.filter(function (x, i, a) { return a.indexOf(x) === i; }).sort(function (a, b) { return a - b; });
+      var segs = [], st = u[0], pv = u[0];
+      for (var i = 1; i <= u.length; i++) {
+        if (i < u.length && u[i] === pv + 1) { pv = u[i]; continue; }
+        segs.push(st === pv ? String(st) : st + '-' + pv);
+        if (i < u.length) { st = pv = u[i]; }
+      }
+      return g.base + g.sp + segs.join('·') + '호';
+    }).join(', ');
   }
   function gmCands() {
     var G = S.gm, q = mkey(G.q), other = groupOf();
