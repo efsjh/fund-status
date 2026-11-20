@@ -232,7 +232,23 @@ body.embed main{padding:20px 24px 32px}
   function fundIndex() {
     if (S.fundIdx || !S.fund) return S.fundIdx || {};
     var idx = {};
-    S.fund.sites.forEach(function (s) { var k = key(s.name); if (!idx[k]) idx[k] = s; });
+    // 띄어쓰기만 다른 시트 발전소(예: '소나기3공장' 계산서 / '소나기 3공장' 입금·지출)는 하나로 합쳐서 불러옴
+    // 각 내역에는 원래 발전소명(_sn)을 남겨서 수정·삭제할 때 원본 이름 그대로 찾아감
+    var tag = function (s, k) { return (s[k] || []).map(function (x) { var y = {}; for (var q in x) y[q] = x[q]; if (!y._sn) y._sn = s.name; return y; }); };
+    S.fund.sites.forEach(function (s) {
+      var k = key(s.name), o = idx[k];
+      if (!o) { idx[k] = s; return; }
+      if (!o._merged) {
+        var c = {}; for (var q in o) c[q] = o[q];
+        c.inv = tag(o, 'inv'); c.inc = tag(o, 'inc'); c.exp = tag(o, 'exp'); c.units = (o.units || []).slice(); c._merged = [o.name];
+        o = idx[k] = c;
+      }
+      o._merged.push(s.name);
+      ['inv', 'inc', 'exp'].forEach(function (f) { o[f] = o[f].concat(tag(s, f)).sort(function (a, b) { var x = String(a.d || ''), z = String(b.d || ''); return x < z ? -1 : x > z ? 1 : 0; }); });
+      (s.units || []).forEach(function (u) { if (o.units.indexOf(u) < 0) o.units.push(u); });
+      if (!o.owner) o.owner = s.owner; if (!o.branch) o.branch = s.branch; if (!Number(o.cap)) o.cap = s.cap;
+      ['line', 'sales', 'module', 'sub', 'etc', 'extra'].forEach(function (f) { o[f] = (Number(o[f]) || 0) + (Number(s[f]) || 0); });
+    });
     return (S.fundIdx = idx);
   }
   function findSite(c) {
@@ -500,7 +516,7 @@ body.embed main{padding:20px 24px 32px}
     if (!parts.length) return null;
     var cat = function (k) {
       var L = [];
-      parts.forEach(function (p) { (p.s[k] || []).forEach(function (x) { var y = {}; for (var q in x) y[q] = x[q]; y._sn = p.s.name; y._lb = p.m.name; L.push(y); }); });
+      parts.forEach(function (p) { (p.s[k] || []).forEach(function (x) { var y = {}; for (var q in x) y[q] = x[q]; y._sn = x._sn || p.s.name; y._lb = p.m.name; L.push(y); }); });
       return L.sort(function (a, b) { var x = String(a.d || ''), z = String(b.d || ''); return x < z ? -1 : x > z ? 1 : 0; });
     };
     var uniq = function (f) { var o = []; parts.forEach(function (p) { var v = f(p.s); if (v && o.indexOf(v) < 0) o.push(v); }); return o.join(', '); };
