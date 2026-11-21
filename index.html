@@ -415,13 +415,13 @@ body.embed main{padding:20px 24px 32px}
       '<div><span class="lbl">수금액</span><span class="num big" style="color:var(--blue)">' + fmt(incSum) + '</span></div>' +
       '<div style="background:' + (unpaid > 0 ? '#FFF1F2' : unpaid < 0 ? '#FFFBEB' : '#FFF') + '"><span class="lbl">미수금</span><span class="num big" style="color:' + (unpaid > 0 ? 'var(--red)' : unpaid < 0 ? 'var(--amber)' : 'var(--ink)') + '">' + fmt(unpaid) + '</span></div></div>';
 
-    if (site.erpOnly) out += '<div class="warn">현장별 자금현황 시트에는 이 발전소 내역이 없어서, 계산서는 ERP 회수관리 내역으로만 보여줘요.</div>';
+    if (site.erpOnly) out += '<div class="warn">현장별 자금현황 시트에는 이 발전소 내역이 없어서, 계산서는 ERP 채권정보 발행 내역으로만 보여줘요.</div>';
     if (ip.src === 'sheet' && ip.erpN) out += '<div class="warn">병합 중 일부 호기만 ERP에 계산서 발행 내역이 있어(' + h(ip.noErp.join(', ') + ' 없음') + '), 호기별로 나눌 수 없어 시트 계산서 그대로 보여줘요.</div>';
     if (ip.src === 'mix') out += '<div class="warn">' + h(ip.noErp.join(', ')) + '은(는) ERP에 계산서 발행 내역이 없어 시트 계산서 줄로 더했어요.</div>';
     var exW = Number(sel.extraWork) || 0, ctrA = Number(sel.contractAmount) || 0;
     if (!sel.isNew && exW && invSum !== ctrA + exW) out += '<div class="warn"><b>추가공사 확인</b> · 추가공사 ' + fmt(exW) + '원이 있는데, 계산서 합계 ' + fmt(invSum) + '원이 계약금액+추가공사 ' + fmt(ctrA + exW) + '원과 ' + fmt(invSum - ctrA - exW) + '원 차이 나요. 추가공사 계산서가 발행됐는지 확인해 주세요.</div>';
-    else if (!sel.isNew && ip.src === 'sheet' && sel.invoiceTotal && sel.invoiceTotal !== invSum) out += '<div class="warn">ERP 계산서 발행금액(금융시트 N열) ' + fmt(sel.invoiceTotal) + '원과 시트 계산서 합계가 ' + fmt(invSum - sel.invoiceTotal) + '원 차이 나요. ERP 회수관리에 계산서 발행 내역을 넣으면 그 내역으로 바뀌어요.</div>';
-    var invSrcTxt = ip.src === 'erp' ? '계산서: ERP 회수관리' : ip.src === 'mix' ? '계산서: ERP 회수관리 + 시트' : '계산서: 자금현황 시트 (ERP 내역 없음)';
+    else if (!sel.isNew && ip.src === 'sheet' && sel.invoiceTotal && sel.invoiceTotal !== invSum) out += '<div class="warn">ERP 계산서 발행금액(금융시트 N열) ' + fmt(sel.invoiceTotal) + '원과 시트 계산서 합계가 ' + fmt(invSum - sel.invoiceTotal) + '원 차이 나요. ERP 채권정보에 계산서 발행 내역을 넣으면 그 내역으로 바뀌어요.</div>';
+    var invSrcTxt = (ip.src === 'erp' ? '계산서: ERP 채권정보' : ip.src === 'mix' ? '계산서: ERP 채권정보 + 시트' : '계산서: 자금현황 시트 (ERP 내역 없음)') + (ip.exN ? ' · 추가공사 ' + ip.exN + '건 포함' : '');
 
     S.leCtx = site;
     var g1 = 'grid-template-columns:96px 112px 96px 112px 90px minmax(0,1fr) 32px';
@@ -541,15 +541,27 @@ body.embed main{padding:20px 24px 32px}
   // 자금현황에서 병합한 발전소는 호기별로: ERP 줄이 있는 호기는 ERP, 없는 호기는 그 호기 시트 줄
   function invPlan(sel, site) {
     var sheet = (site && site.inv) || [];
+    // 추가공사(현장관리 기타/추가공사 중 계산서 발행 완료) 줄 — 2026-11-22
+    var exRows = function (its) {
+      var L = [];
+      its.forEach(function (it) { (it.extraInvoices || []).forEach(function (x) { if (Number(x.amount)) L.push({ d: x.date || '', a: Number(x.amount) || 0, v: '', m: x.desc || '추가공사', _lb: (x.unit ? x.unit + ' · ' : '') + '추가공사' + (x.desc ? ' · ' + x.desc : ''), _erp: 1, _ex: 1 }); }); });
+      return L;
+    };
+    var srt = function (L) { return L.sort(function (a, b) { var x = String(a.d || ''), z = String(b.d || ''); return x < z ? -1 : x > z ? 1 : 0; }); };
     if (!sel || sel.isNew) return { rows: sheet, src: 'sheet', erpN: 0, noErp: [] };
-    var mem = sel.fsGroup ? sel.members : [sel], multi = mem.length > 1, L = [], withE = [], noE = [];
+    var mem = sel.fsGroup ? sel.members : [sel], L = [], withE = [], noE = [];
+    var multi = mem.length > 1 || mem.some(function (it) { return (it.invoices || []).some(function (x) { return x.unit; }); });
     mem.forEach(function (it) {
       var r = (it.invoices || []).filter(function (x) { return Number(x.amount); });
       if (!r.length) { noE.push(it); return; }
       withE.push(it);
-      r.forEach(function (x) { L.push({ d: x.date || '', a: Number(x.amount) || 0, v: x.by || '', m: x.type || '', _lb: (multi ? it.name + ' · ' : '') + (x.type || ''), _erp: 1 }); });
+      r.forEach(function (x) { var u = x.unit || (mem.length > 1 ? it.name : ''); L.push({ d: x.date || '', a: Number(x.amount) || 0, v: x.by || '', m: x.type || '', _lb: (u ? u + ' · ' : '') + (x.type || ''), _erp: 1 }); });
     });
-    if (!L.length) return { rows: sheet, src: 'sheet', erpN: 0, noErp: [] };
+    var ex = exRows(mem);
+    if (!L.length) {   // ERP 발행 내역 없음 → 시트 그대로 + 시트에 없는 추가공사 발행분
+      var add = ex.filter(function (e) { return !sheet.some(function (x) { return Number(x.a) === e.a; }); });
+      return { rows: add.length ? srt(sheet.concat(add)) : sheet, src: 'sheet', erpN: 0, noErp: [], exN: add.length };
+    }
     if (noE.length) {   // 병합 중 ERP 내역이 없는 호기 → 그 호기 시트 줄만 더함 (시트 발전소명 또는 내용에 호기 이름이 있는 줄)
       var ks = [], ok = 0;
       noE.forEach(function (it) { [it.name, it.sheetName].concat(it.mergedMembers || []).forEach(function (n) { var k = key(String(n || '').replace(/\(.*?\)/g, '')); if (k && ks.indexOf(k) < 0) ks.push(k); }); });
@@ -560,8 +572,8 @@ body.embed main{padding:20px 24px 32px}
       // 호기별로 못 나누면 (시트가 '○○1~2호' 한 이름으로만 돼 있고 내용에도 호기 이름이 없음) → 시트 그대로
       if (!ok && sheet.length) return { rows: sheet, src: 'sheet', erpN: withE.length, noErp: noE.map(function (it) { return it.name; }), split: false };
     }
-    L.sort(function (a, b) { var x = String(a.d || ''), z = String(b.d || ''); return x < z ? -1 : x > z ? 1 : 0; });
-    return { rows: L, src: noE.length ? 'mix' : 'erp', erpN: withE.length, noErp: noE.map(function (it) { return it.name; }) };
+    L = L.concat(ex);
+    return { rows: srt(L), src: noE.length ? 'mix' : 'erp', erpN: withE.length, noErp: noE.map(function (it) { return it.name; }), exN: ex.length };
   }
   function subLbl(x) { return x && x._lb ? '<span class="fs-sub">' + h(x._lb) + '</span>' : ''; }
   function groupErpRows(g) {
