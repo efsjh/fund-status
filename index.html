@@ -827,6 +827,19 @@ body.embed main{padding:20px 24px 32px}
     s = s.replace(/(\d)\s*[-–]\s*(\d)/g, '$1~$2').replace(/\s/g, '').replace(/[.·]/g, '').toLowerCase();
     return s;
   }
+  // 같은 이름 발전소 구분용: 괄호 안(사업주)까지 살린 키 — 예: '태림(태림테크)' ≠ '태림' (2026-11-22)
+  function fkey(v) {
+    var s = String(v || '').split('\n')[0].normalize('NFKC');
+    s = s.replace(/태양광\s*발전소|태양광|발전소|\(주\)|주식회사|\(유\)|㈜|유한회사/g, '').trim();
+    return s.replace(/(\d)\s*[-–]\s*(\d)/g, '$1~$2').replace(/\s/g, '').replace(/[.·]/g, '').toLowerCase();
+  }
+  // 채권이 직접 연결된 현장관리 현장 id → 그 채권
+  function bondBySiteId(id) {
+    if (!id) return null;
+    var L = items();
+    for (var i = 0; i < L.length; i++) if ((L[i].units || []).some(function (u) { return u.siteId === id; })) return L[i];
+    return null;
+  }
   function isNoSite(v) { var s = String(v || '').trim(); return !s || /^[xX×\-–—\/.0]+$/.test(s) || s === '해당없음'; }
   function mexpand(k) {
     var m = /^(.*?[^\d,~])(\d+(?:[~,]\d+)*)호?$/.exec(k);
@@ -854,7 +867,14 @@ body.embed main{padding:20px 24px 32px}
       [it.name, it.sheetName].concat(it.mergedMembers || []).forEach(function (n) { putAll(n, e); });
     });
     // 현장관리는 채권관리에 없는 발전소만 보탬 → 채권에서 병합한 호기(조은목장1호 등)는 병합 항목만 나옴
-    (sites || []).forEach(function (it) { if (!inBonds(idx, it.name)) putAll(it.name, { src: '현장', id: it.id, name: it.name, status: it.status }); });
+    // 채권이 연결된 현장은 빼고, 이름이 같아도 채권이 없는 다른 현장(사업주 다름)은 보탬
+    var linked = {}; (bonds || []).forEach(function (it) { (it.units || []).forEach(function (u) { if (u.siteId) linked[u.siteId] = 1; }); });
+    (sites || []).forEach(function (it) { if (linked[it.id]) return; if (!inBonds(idx, it.name)) putAll(it.name, { src: '현장', id: it.id, name: it.name, status: it.status }); });
+    // 이름 전체(괄호 포함)로 찾는 표 — 같은 이름 다른 현장을 정확히 가름
+    var full = {}; function putF(n, e) { var k = fkey(n); if (!k) return; (full[k] = full[k] || []); if (!full[k].some(function (x) { return x.src === e.src && x.id === e.id; })) full[k].push(e); }
+    (bonds || []).forEach(function (it) { var e = { src: '채권', id: it.id, name: it.name, status: it.status }; [it.name, it.sheetName].concat(it.mergedMembers || []).forEach(function (n) { putF(n, e); }); });
+    (sites || []).forEach(function (it) { if (!linked[it.id]) putF(it.name, { src: '현장', id: it.id, name: it.name, status: it.status }); });
+    idx.__full = full;
     // 이름만 적힌 경우: 같은 이름으로 시작하는 ERP 발전소가 채권·현장 각각 한 곳뿐일 때만 인정
     Object.keys(base).forEach(function (b) { if (!idx[b] && !ambiguous(base[b])) idx['~' + b] = base[b]; });
     return idx;
@@ -892,6 +912,8 @@ body.embed main{padding:20px 24px 32px}
   }
   function autoMatch(idx, name) {
     if (isNoSite(name)) return { state: 'none', hits: [] };
+    var fk = fkey(name), ex = idx.__full && idx.__full[fk];
+    if (ex && fk !== mkey(name) && ex.length === 1) return { state: 'ok', hits: ex, auto: true };   // '태림(태림테크)'처럼 괄호까지 같은 이름
     var r = partHits(idx, mkey(name));
     if (r && !r.partial) return { state: 'ok', hits: r, auto: true };
     return { state: 'bad', hits: [], hint: r ? r.partial : [] };
@@ -958,8 +980,9 @@ body.embed main{padding:20px 24px 32px}
   function nameBase(v) { return mkey(v).replace(/[\d~,]+(호|공장)?$/, ''); }
   // 현장관리 발전소(e) → 같은 현장인 채권관리 발전소 찾기
   function bondForSite(e) {
-    var L = inBonds(getIdx(), e.name);                 // 1) 이름이 같으면 그대로
-    if (L && !ambiguous(L)) return L[0];
+    var lb = bondBySiteId(e.id); if (lb) return lb;     // 0) 채권에 이 현장이 직접 연결돼 있으면 그 채권
+    var L = inBonds(getIdx(), e.name);                 // 1) 이름이 같으면 그대로 — 단, 그 채권이 다른 현장(같은 이름·다른 사업주)에 연결돼 있으면 아님
+    if (L && !ambiguous(L)) { var b0 = byId('채권', L[0].id); if (!(b0 && (b0.units || []).length && !(b0.units || []).some(function (u) { return u.siteId === e.id; }))) return L[0]; }
     var s = byId('현장', e.id); if (!s) return null;   // 2) 이름이 달라도 발전량·사업주·영업지사로 비교
     var cap = siteCap(s), ow = personKey(s.owner), br = branchKey(s.branch), nb = nameBase(s.name);
     if (!cap && !ow) return null;
