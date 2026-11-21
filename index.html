@@ -402,14 +402,26 @@ body.embed main{padding:20px 24px 32px}
     var shr = site ? sharedWith(sel) : [];
     if (shr.length) out += '<div class="warn">시트 ' + h(shr.reduce(function (a, x) { x.sheets.forEach(function (n) { if (a.indexOf(n) < 0) a.push(n); }); return a; }, []).join(', ')) + ' 내역은 ' + h(shr.map(function (x) { return x.it.name; }).join(', ')) + '와(과) 같이 쓰는 내역이라, 이 화면 합계에 같이 들어가 있어요.' + (sel.fsGroup || groupOf()[sel.id] ? '' : ' 한 화면에서 보려면 「자금현황에서 병합」으로 묶어 주세요.') + '</div>';
     if (site && site.miss && site.miss.length) out += '<div class="warn">' + h(site.miss.join(', ')) + ' — 시트에서 자금 내역을 못 찾아 합계에서 빠졌어요.</div>';
+    if (!site && invPlan(sel, null).src !== 'sheet') site = { name: sel.name, inv: [], inc: [], exp: [], units: [], cap: 0, owner: '', branch: '', erpOnly: true };
     if (!site) return out + '<div class="card sec"><b>' + h(sel.name) + ' — 시트에 자금 내역이 없습니다</b><span class="muted">현장별 자금현황 시트(현장관리현황 · 입금내역 · 기자재 지급내역 · 계산서발행)에서 같은 이름의 발전소를 찾지 못했어요. ERP 채권관리에서 시트 연결명을 확인해 주세요.</span></div>';
 
+    // 계산서 = ERP 회수관리 '계산서 발행 내역' 우선 (없으면 시트)
+    var ip = invPlan(sel, site);
+    if (ip.src !== 'sheet') { var s2 = {}; for (var q2 in site) s2[q2] = site[q2]; s2.inv = ip.rows; site = s2; }
     var sum = function (xs) { return xs.reduce(function (a, x) { return a + x.a; }, 0); };
     var invSum = sum(site.inv), incSum = sum(site.inc), expSum = sum(site.exp), unpaid = invSum - incSum;
     out += '<div class="card grid-sum">' +
       '<div><span class="lbl">계산서 발행금액</span><span class="num big">' + fmt(invSum) + '</span></div>' +
       '<div><span class="lbl">수금액</span><span class="num big" style="color:var(--blue)">' + fmt(incSum) + '</span></div>' +
       '<div style="background:' + (unpaid > 0 ? '#FFF1F2' : unpaid < 0 ? '#FFFBEB' : '#FFF') + '"><span class="lbl">미수금</span><span class="num big" style="color:' + (unpaid > 0 ? 'var(--red)' : unpaid < 0 ? 'var(--amber)' : 'var(--ink)') + '">' + fmt(unpaid) + '</span></div></div>';
+
+    if (site.erpOnly) out += '<div class="warn">현장별 자금현황 시트에는 이 발전소 내역이 없어서, 계산서는 ERP 회수관리 내역으로만 보여줘요.</div>';
+    if (ip.src === 'sheet' && ip.erpN) out += '<div class="warn">병합 중 일부 호기만 ERP에 계산서 발행 내역이 있어(' + h(ip.noErp.join(', ') + ' 없음') + '), 호기별로 나눌 수 없어 시트 계산서 그대로 보여줘요.</div>';
+    if (ip.src === 'mix') out += '<div class="warn">' + h(ip.noErp.join(', ')) + '은(는) ERP에 계산서 발행 내역이 없어 시트 계산서 줄로 더했어요.</div>';
+    var exW = Number(sel.extraWork) || 0, ctrA = Number(sel.contractAmount) || 0;
+    if (!sel.isNew && exW && invSum !== ctrA + exW) out += '<div class="warn"><b>추가공사 확인</b> · 추가공사 ' + fmt(exW) + '원이 있는데, 계산서 합계 ' + fmt(invSum) + '원이 계약금액+추가공사 ' + fmt(ctrA + exW) + '원과 ' + fmt(invSum - ctrA - exW) + '원 차이 나요. 추가공사 계산서가 발행됐는지 확인해 주세요.</div>';
+    else if (!sel.isNew && ip.src === 'sheet' && sel.invoiceTotal && sel.invoiceTotal !== invSum) out += '<div class="warn">ERP 계산서 발행금액(금융시트 N열) ' + fmt(sel.invoiceTotal) + '원과 시트 계산서 합계가 ' + fmt(invSum - sel.invoiceTotal) + '원 차이 나요. ERP 회수관리에 계산서 발행 내역을 넣으면 그 내역으로 바뀌어요.</div>';
+    var invSrcTxt = ip.src === 'erp' ? '계산서: ERP 회수관리' : ip.src === 'mix' ? '계산서: ERP 회수관리 + 시트' : '계산서: 자금현황 시트 (ERP 내역 없음)';
 
     S.leCtx = site;
     var g1 = 'grid-template-columns:96px 112px 96px 112px 90px minmax(0,1fr) 32px';
@@ -418,7 +430,7 @@ body.embed main{padding:20px 24px 32px}
       var v = site.inv[i], c = site.inc[i];
       rows += '<div class="row" style="' + g1 + '"><span class="num">' + (v ? v.d + subLbl(v) : '') + '</span><span class="num r" style="font-weight:600">' + (v ? fmt(v.a) : '') + '</span><span class="num">' + (c ? c.d + subLbl(c) : '') + '</span><span class="num r" style="font-weight:600;color:var(--blue)">' + (c ? fmt(c.a) : '') + '</span><span>' + h(c ? c.v : '') + '</span><span style="color:var(--sub2)">' + h(c ? c.m : '') + '</span>' + (c ? leBtn('inc', i) : '<span></span>') + '</div>';
     }
-    var inSec = '<section class="card sec"><div style="display:flex;justify-content:space-between;gap:12px"><h2>입금 및 매출 내역</h2><span class="num muted" style="font-size:12px">계산서 ' + site.inv.length + '건 · 수금 ' + site.inc.length + '건</span></div><div class="scroll"><div style="min-width:640px">' +
+    var inSec = '<section class="card sec"><div style="display:flex;justify-content:space-between;gap:12px"><h2>입금 및 매출 내역</h2><span class="num muted" style="font-size:12px">' + h(invSrcTxt) + ' · 계산서 ' + site.inv.length + '건 · 수금 ' + site.inc.length + '건</span></div><div class="scroll"><div style="min-width:640px">' +
       '<div class="head" style="' + g1 + '"><span class="th">계산서발행일</span><span class="th r">금액(vat포함)</span><span class="th">수금일</span><span class="th r">수금액</span><span class="th">거래처</span><span class="th">비고</span><span></span></div>' +
       (rows || '<div class="muted" style="padding:20px 8px">등록된 계산서·수금 내역이 없습니다.</div>') +
       '<div class="row" style="' + g1 + ';border:0;font-weight:700"><span>합계</span><span class="num r">' + fmt(invSum) + '</span><span></span><span class="num r" style="color:var(--blue)">' + fmt(incSum) + '</span><span></span><span></span><span></span></div></div></div></section>';
@@ -476,7 +488,7 @@ body.embed main{padding:20px 24px 32px}
       out.push({ id: 'grp:' + nm, name: nm, sheetName: nm, fsGroup: true, members: mem, mergedMembers: names,
         status: tabs.length === 1 ? tabs[0] : '', tabs: tabs, manager: mgr.join(', '),
         inspectionDate: dated ? dated.inspectionDate : '', inspectionPlanned: dated ? dated.inspectionPlanned : false,
-        contractAmount: tot('contractAmount'), extraWork: tot('extraWork'), collected: tot('collected'), balance: tot('balance') });
+        contractAmount: tot('contractAmount'), extraWork: tot('extraWork'), collected: tot('collected'), balance: tot('balance'), invoiceTotal: tot('invoiceTotal') });
     });
     out.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
     return (S.grpC = out);
@@ -523,6 +535,33 @@ body.embed main{padding:20px 24px 32px}
     return { name: name, group: true, parts: parts.map(function (p) { return p.s.name; }), miss: miss, inv: cat('inv'), inc: cat('inc'), exp: cat('exp'), units: [],
       owner: uniq(function (s) { return s.owner; }), branch: uniq(function (s) { return s.branch; }),
       cap: parts.reduce(function (a, p) { return a + (Number(p.s.cap) || 0); }, 0) };
+  }
+  // ERP 회수관리 '계산서 발행 내역' → 화면 계산서 줄 (2026-11-21)
+  // ERP에 줄이 있으면 ERP 기준, 없으면(7·8월 등 ERP 입력 전) 현장별 자금현황 시트 '계산서발행' 그대로
+  // 자금현황에서 병합한 발전소는 호기별로: ERP 줄이 있는 호기는 ERP, 없는 호기는 그 호기 시트 줄
+  function invPlan(sel, site) {
+    var sheet = (site && site.inv) || [];
+    if (!sel || sel.isNew) return { rows: sheet, src: 'sheet', erpN: 0, noErp: [] };
+    var mem = sel.fsGroup ? sel.members : [sel], multi = mem.length > 1, L = [], withE = [], noE = [];
+    mem.forEach(function (it) {
+      var r = (it.invoices || []).filter(function (x) { return Number(x.amount); });
+      if (!r.length) { noE.push(it); return; }
+      withE.push(it);
+      r.forEach(function (x) { L.push({ d: x.date || '', a: Number(x.amount) || 0, v: x.by || '', m: x.type || '', _lb: (multi ? it.name + ' · ' : '') + (x.type || ''), _erp: 1 }); });
+    });
+    if (!L.length) return { rows: sheet, src: 'sheet', erpN: 0, noErp: [] };
+    if (noE.length) {   // 병합 중 ERP 내역이 없는 호기 → 그 호기 시트 줄만 더함 (시트 발전소명 또는 내용에 호기 이름이 있는 줄)
+      var ks = [], ok = 0;
+      noE.forEach(function (it) { [it.name, it.sheetName].concat(it.mergedMembers || []).forEach(function (n) { var k = key(String(n || '').replace(/\(.*?\)/g, '')); if (k && ks.indexOf(k) < 0) ks.push(k); }); });
+      sheet.forEach(function (x) {
+        var hit = ks.indexOf(key(x._lb)) >= 0 || ks.indexOf(key(x._sn)) >= 0 || ks.some(function (k) { return key(x.m).indexOf(k) >= 0; });
+        if (hit) { L.push(x); ok++; }
+      });
+      // 호기별로 못 나누면 (시트가 '○○1~2호' 한 이름으로만 돼 있고 내용에도 호기 이름이 없음) → 시트 그대로
+      if (!ok && sheet.length) return { rows: sheet, src: 'sheet', erpN: withE.length, noErp: noE.map(function (it) { return it.name; }), split: false };
+    }
+    L.sort(function (a, b) { var x = String(a.d || ''), z = String(b.d || ''); return x < z ? -1 : x > z ? 1 : 0; });
+    return { rows: L, src: noE.length ? 'mix' : 'erp', erpN: withE.length, noErp: noE.map(function (it) { return it.name; }) };
   }
   function subLbl(x) { return x && x._lb ? '<span class="fs-sub">' + h(x._lb) + '</span>' : ''; }
   function groupErpRows(g) {
