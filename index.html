@@ -2172,7 +2172,7 @@ body.embed main{padding:20px 24px 32px}
     var out = new Uint8Array(len), p = 0; all.forEach(function (x) { out.set(x, p); p += x.length; }); return out;
   }
   function makeDocx(f, kind) {
-    var get = TPLS[kind] ? Promise.resolve(TPLS[kind]) : fetch(TPL_SRC[kind] + '?v=1').then(function (r) { if (!r.ok) throw new Error('양식 파일 없음'); return r.json(); }).then(function (t) { TPLS[kind] = t; return t; });
+    var get = TPLS[kind] ? Promise.resolve(TPLS[kind]) : fetch(TPL_SRC[kind] + '?v=3').then(function (r) { if (!r.ok) throw new Error('양식 파일 없음'); return r.json(); }).then(function (t) { TPLS[kind] = t; return t; });
     return get.then(function (tpl) {
       var vals = docVals(f, kind), esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
       var doc = tpl.doc.replace(/\{\{([^}]+)\}\}/g, function (m, k) { return esc(vals[k]); }).replace(/<w:highlight w:val="yellow"\/>/g, '');
