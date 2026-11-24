@@ -36,6 +36,12 @@ main{flex:999 1 560px;min-width:0;padding:28px 32px 48px;display:flex;flex-direc
 .field>span,.field>label{font-size:12px;font-weight:600;color:var(--sub2)}
 .box{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 4px 0 12px;border:1px solid #C9D2DE;border-radius:10px;background:#FFF}
 .box input{border:0;outline:none;font-size:15px;flex:1;min-width:0;color:var(--ink);background:transparent}
+.dseg{display:flex;align-items:center;gap:1px;flex:1;min-width:0}
+.dseg input{flex:0 0 auto;text-align:center;padding:0;font-variant-numeric:tabular-nums}
+.dseg input[data-dp="y"]{width:3.1em}.dseg input[data-dp="m"],.dseg input[data-dp="d"]{width:1.9em}
+.dseg input::placeholder{color:#AEB7C4}
+.dseg i{font-style:normal;color:var(--sub2)}
+.dseg.bad{outline:0}.box:has(.dseg.bad){border-color:#DC2626}
 select.sel{min-height:44px;padding:0 10px;border:1px solid #C9D2DE;border-radius:10px;background:#FFF;font-size:14px;color:var(--ink)}
 .icon-btn{width:40px;height:40px;border:0;border-radius:8px;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--sub2)}
 .dd{position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:20;max-height:380px;overflow-y:auto;background:#FFF;border:1px solid #C9D2DE;border-radius:12px;box-shadow:0 12px 32px rgba(15,27,45,.16);padding:6px}
@@ -770,12 +776,13 @@ body.embed main{padding:20px 24px 32px}
       box('잔금 남은 현장 (검사 완료)', unpaid, 'background:#FFE4E6;color:#9F1239', function (it) { return fmt(it.balance); }) + '</section></div>';
   }
 
-  S.lgFrom = ''; S.lgTo = ''; S.lgLimit = 300; S.lgSite = ''; S.lgSel = {}; S.lgNew = ''; S.lgBusy = false;
+  // 검색연도: 기본 올해 ('' = 전체 연도)
+  S.lgYear = String(new Date(Date.now() + 9 * 3600000).getUTCFullYear()); S.lgFrom = ''; S.lgTo = ''; S.lgLimit = 300; S.lgSite = ''; S.lgSel = {}; S.lgNew = ''; S.lgBusy = false;
   function ledgerList() {
-    var q = norm(S.query);
+    var q = norm(S.query), lgF = S.lgYear ? (S.lgFrom || S.lgYear + '-01-01') : '', lgT = S.lgYear ? (S.lgTo || S.lgYear + '-12-31') : '';
     var L = S.sheets.ledger.filter(function (r) {
       return (S.kind === '전체' || r.kind === S.kind) && (!S.lgSite || String(r.site || '').trim() === S.lgSite) &&
-        (!S.lgFrom || r.date >= S.lgFrom) && (!S.lgTo || r.date <= S.lgTo) &&
+        (!lgF || r.date >= lgF) && (!lgT || r.date <= lgT) &&
         (!q || norm(r.date + r.vendor + r.memo + r.amt + (r.site || '')).indexOf(q) >= 0) &&
         (S.mf === '전체' || !S.bonds || (String(r.site || '').trim() && mstate(r.site) === ({ '미매칭': 'bad', '계약금 대기': 'wait', '매칭됨': 'ok' })[S.mf]));
     });
@@ -797,16 +804,33 @@ body.embed main{padding:20px 24px 32px}
         '<button class="tab on" data-lgbulk="save" style="background:#3F9A2E;border-color:#3F9A2E"' + (S.lgBusy ? ' disabled' : '') + '>' + (S.lgBusy ? '바꾸는 중…' : '한꺼번에 변경') + '</button>' +
         '<button class="tab" data-lgbulk="clear"' + (S.lgBusy ? ' disabled' : '') + '>선택 해제</button></div>' : '';
     var sumBox = function (l, v, n, col) { return '<div style="display:flex;flex-direction:column;gap:4px;padding:12px 16px;border:1px solid var(--line);border-radius:12px;min-width:150px;flex:1 1 150px"><span class="lbl">' + l + '</span><span class="num" style="font-size:20px;font-weight:700;color:' + col + '">' + v + '</span>' + (n !== null ? '<span class="num muted" style="font-size:12px">' + n + '건</span>' : '') + '</div>'; };
-    var dateIn = function (id, v, lbl) { return '<label class="field" style="flex:0 0 150px"><span>' + lbl + '</span><span class="box" style="min-height:40px;padding-right:8px"><input type="date" id="' + id + '" value="' + h(v) + '"></span></label>'; };
+    // 월/일 따로 입력하는 날짜칸 (2026-11-24): 연도는 옆 드롭다운, 월 2자리 채우면 일로, ←/→ 로 칸 이동
+    var dateIn = function (id, v, lbl) {
+      var p = String(v || '').split('-'), dis = S.lgYear ? '' : ' disabled', seg = function (k, val, ph) { return '<input data-dp="' + k + '" inputmode="numeric" autocomplete="off" maxlength="2" placeholder="' + ph + '" value="' + h(val || '') + '" aria-label="' + lbl + ' ' + (k === 'm' ? '월' : '일') + '"' + dis + '>'; };
+      return '<div class="field" style="flex:0 0 110px"><span>' + lbl + '</span><span class="box" style="min-height:40px;padding-right:8px' + (dis ? ';background:#F3F5F8' : '') + '"><span class="dseg" data-dseg="' + id + '">' +
+        seg('m', p[1], 'MM') + '<i>-</i>' + seg('d', p[2], 'DD') + '</span></span></div>';
+    };
+    var lgYears = function () { var o = {}; o[S.lgYear || String(new Date(Date.now() + 9 * 3600000).getUTCFullYear())] = 1; o[String(new Date(Date.now() + 9 * 3600000).getUTCFullYear())] = 1; (S.sheets.ledger || []).forEach(function (r) { var y = String(r.date || '').slice(0, 4); if (/^\d{4}$/.test(y)) o[y] = 1; }); return Object.keys(o).sort().reverse(); };
+    var lgMonSel = (function () {   // 지금 기간이 어느 달과 딱 맞는지
+      if (!S.lgFrom && !S.lgTo) return '';
+      var f = S.lgFrom, t = S.lgTo; if (!f || !t || f.slice(0, 7) !== t.slice(0, 7) || f.slice(8) !== '01') return 'x';
+      var y = +f.slice(0, 4), m = +f.slice(5, 7); return +t.slice(8) === new Date(Date.UTC(y, m, 0)).getUTCDate() ? String(m) : 'x';
+    })();
+    var selSt = ' style="min-height:40px;padding:0 8px;border:1px solid #C9D2DE;border-radius:10px;background:#FFF;font-size:14px;color:var(--ink)"';
+    var yearSel = '<div class="field"><span>연도</span><select id="lgYear"' + selSt + '><option value=""' + (S.lgYear ? '' : ' selected') + '>전체 연도</option>' +
+      lgYears().map(function (y) { return '<option value="' + y + '"' + (S.lgYear === y ? ' selected' : '') + '>' + y + '년</option>'; }).join('') + '</select></div>';
+    var monSel = '<div class="field"><span>월</span><select id="lgMon"' + selSt + (S.lgYear ? '' : ' disabled') + '><option value=""' + (lgMonSel === '' ? ' selected' : '') + '>1년 전체</option>' +
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (m) { return '<option value="' + m + '"' + (lgMonSel === String(m) ? ' selected' : '') + '>' + m + '월</option>'; }).join('') +
+      (lgMonSel === 'x' ? '<option value="x" selected disabled>직접 입력</option>' : '') + '</select></div>';
     var lim = S.lgLimit;
     var siteBar = S.lgSite ? '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-radius:10px;background:#EBF5E4">' +
         '<span style="font-size:14px">발전소 <b>' + h(S.lgSite) + '</b> 내역만 보는 중</span>' + siteChip(S.lgSite) +
         '<button class="tab" data-lgsite="" style="min-height:32px;margin-left:auto">✕ 발전소 필터 해제</button></div>' : '';
     return out + matchCard() + '<section class="card sec" id="ledgerSec">' + siteBar +
       '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between">' +
-        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">' + dateIn('lgFrom', S.lgFrom, '기간 시작') + dateIn('lgTo', S.lgTo, '기간 끝') +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">' + yearSel + monSel + dateIn('lgFrom', S.lgFrom, '기간 시작') + dateIn('lgTo', S.lgTo, '기간 끝') +
           '<span style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:2px">' +
-          [['이번 달', 'm0'], ['지난 달', 'm1'], ['올해', 'y0'], ['전체 기간', 'all']].map(function (x) { return '<button class="tab" data-lgrange="' + x[1] + '" style="min-height:34px">' + x[0] + '</button>'; }).join('') + '</span></div>' +
+          [['전체 기간', 'all']].map(function (x) { return '<button class="tab" data-lgrange="' + x[1] + '" style="min-height:34px">' + x[0] + '</button>'; }).join('') + '</span></div>' +
         '<button class="tab on" data-lgadd="1" style="min-height:40px">+ 새 기록 추가</button></div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:10px">' + sumBox('전체', L.length.toLocaleString('ko-KR') + '건', null, 'var(--ink)') + sumBox('입금 합계', fmt(inS), inN, 'var(--blue)') + sumBox('지출 합계', fmt(exS), exN, 'var(--amber)') + sumBox('입금 − 지출', fmt(inS - exS), null, inS - exS < 0 ? 'var(--red)' : 'var(--ink)') + '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><div style="display:flex;gap:8px;flex-wrap:wrap">' +
@@ -1167,9 +1191,78 @@ body.embed main{padding:20px 24px 32px}
     var sc = document.querySelector('[data-bmsel]'), box = sc ? sc.closest('.scroll') : null, top = box ? box.scrollTop : 0;
     fn(); var sc2 = document.querySelector('[data-bmsel]'), box2 = sc2 ? sc2.closest('.scroll') : null; if (box2) box2.scrollTop = top;
   }
+  /* ---------- 검색기간 연/월/일 입력칸 (2026-11-24) ---------- */
+  function dsegParts(g) { var q = function (k) { return g.querySelector('[data-dp="' + k + '"]'); }; return { m: q('m'), d: q('d') }; }
+  function dsegValue(g) {   // 완성된 올바른 날짜면 'YYYY-MM-DD', 전부 비었으면 '', 미완성/잘못이면 null
+    var P = dsegParts(g), y = S.lgYear, m = P.m.value, d = P.d.value;
+    if (!m && !d) return '';
+    if (!y || m.length !== 2 || d.length !== 2) return null;
+    var mi = +m, di = +d; if (mi < 1 || mi > 12 || di < 1) return null;
+    if (di > new Date(Date.UTC(+y, mi, 0)).getUTCDate()) return null;
+    return y + '-' + m + '-' + d;
+  }
+  function dsegCommit(g) {   // 값이 바뀌었을 때만 목록 다시 그림 — 입력 중이던 칸·커서 위치는 그대로 복원
+    var id = g.dataset.dseg, v = dsegValue(g);
+    g.classList.toggle('bad', v === null && dsegParts(g).d.value.length === 2);
+    if (v === null || v === S[id]) return;
+    S[id] = v; S.lgLimit = 300;
+    var a = document.activeElement, ag = a && a.closest && a.closest('[data-dseg]'), keep = null;
+    if (ag && a.dataset.dp) keep = { g: ag.dataset.dseg, p: a.dataset.dp, s: a.selectionStart, e: a.selectionEnd };
+    var y = window.scrollY; render(); window.scrollTo(0, y);
+    if (keep) { var n = document.querySelector('[data-dseg="' + keep.g + '"] [data-dp="' + keep.p + '"]'); if (n) { n.focus(); try { n.setSelectionRange(keep.s, keep.e); } catch (x) {} } }
+  }
+  function dsegGo(el, dir, caret) {   // dir: -1 이전 칸, +1 다음 칸 (기간 시작 ↔ 기간 끝도 이어서 이동)
+    var all = [].slice.call(document.querySelectorAll('[data-dseg] [data-dp]')), i = all.indexOf(el), n = all[i + dir];
+    if (!n) return false;
+    n.focus(); var pos = caret === 'end' ? n.value.length : caret === 'all' ? null : 0;
+    try { if (pos === null) n.select(); else n.setSelectionRange(pos, pos); } catch (x) {}
+    return true;
+  }
+  function dsegPad(el) { if (el.dataset.dp !== 'y' && el.value.length === 1 && el.value !== '0') el.value = '0' + el.value; }
+  document.addEventListener('input', function (e) { var el = e.target; if (el.dataset && el.dataset.dp) dsegOnInput(el); });
+  function dsegOnInput(el) {
+    var g = el.closest('[data-dseg]'); if (!g) return;
+    var max = el.dataset.dp === 'y' ? 4 : 2, v = el.value.replace(/\D/g, '').slice(0, max);
+    if (v !== el.value) el.value = v;
+    var full = v.length === max && el.selectionStart === max;
+    if (full && el.dataset.dp !== 'd') dsegGo(el, 1, 'all');   // 월 2자리 → 일 칸으로 (일은 2자리 채워야만 확정)
+    dsegCommit(g);
+  }
+  document.addEventListener('keydown', function (e) {
+    var el = e.target; if (!el.dataset || !el.dataset.dp || !el.closest('[data-dseg]')) return;
+    var s = el.selectionStart, en = el.selectionEnd, len = el.value.length, max = el.dataset.dp === 'y' ? 4 : 2;
+    if (/^\d$/.test(e.key) && !e.ctrlKey && !e.metaKey && s === en && len >= max) {   // 꽉 찬 칸: 커서 자리 숫자를 덮어쓰기, 맨 끝이면 새로 입력
+      e.preventDefault();
+      if (s < len) { el.value = el.value.slice(0, s) + e.key + el.value.slice(s + 1); el.setSelectionRange(s + 1, s + 1); }
+      else { el.value = e.key; el.setSelectionRange(1, 1); }
+      dsegOnInput(el); return;
+    }
+    if (e.key === 'ArrowLeft' && s === 0 && en === 0) { if (dsegGo(el, -1, 'end')) e.preventDefault(); }
+    else if (e.key === 'ArrowRight' && s === len && en === len) { if (dsegGo(el, 1, 'start')) e.preventDefault(); }
+    else if (e.key === 'Backspace' && s === 0 && en === 0) { if (dsegGo(el, -1, 'end')) e.preventDefault(); }
+    else if (e.key === '-' || e.key === '/' || e.key === '.') { e.preventDefault(); if (el.value) { dsegPad(el); dsegCommit(el.closest('[data-dseg]')); if (el.dataset.dp !== 'd') dsegGo(el, 1, 'all'); } }
+    else if (e.key === 'Enter') { e.preventDefault(); dsegPad(el); dsegCommit(el.closest('[data-dseg]')); }
+  });
+  document.addEventListener('focusout', function (e) {   // 칸을 벗어나면 한 자리 월/일은 0을 붙여 확정 (예: 3 → 03)
+    var el = e.target; if (!el.dataset || !el.dataset.dp) return;
+    var g = el.closest('[data-dseg]'); if (!g) return;
+    dsegPad(el);
+    setTimeout(function () { if (document.body.contains(g) && !g.contains(document.activeElement)) dsegCommit(g); }, 0);
+  });
+
+
   document.addEventListener('change', function (e) {
     var t = e.target, B = S.bm;
-    if (t.id === 'lgFrom' || t.id === 'lgTo') { S[t.id] = t.value; S.lgLimit = 300; render(); return; }
+    if (t.id === 'lgYear') {   // 연도 바꾸면 입력해 둔 월/일은 그대로, 연도만 바꿈
+      var ny = t.value, mv = function (v) { if (!v || !ny) return ''; var m = +v.slice(5, 7), d = Math.min(+v.slice(8), new Date(Date.UTC(+ny, m, 0)).getUTCDate()); return ny + '-' + v.slice(5, 7) + '-' + (d < 10 ? '0' : '') + d; };
+      S.lgFrom = mv(S.lgFrom); S.lgTo = mv(S.lgTo); S.lgYear = ny; S.lgLimit = 300; lgRender(); return;
+    }
+    if (t.id === 'lgMon') {
+      var mo = +t.value;
+      if (!mo) { S.lgFrom = ''; S.lgTo = ''; }
+      else { var iso = function (d) { return d.toISOString().slice(0, 10); }; S.lgFrom = iso(new Date(Date.UTC(+S.lgYear, mo - 1, 1))); S.lgTo = iso(new Date(Date.UTC(+S.lgYear, mo, 0))); }
+      S.lgLimit = 300; lgRender(); return;
+    }
     if (t.dataset && t.dataset.lgck) { var rr = +t.dataset.lgck; if (t.checked) S.lgSel[rr] = 1; else delete S.lgSel[rr]; lgRender(); return; }
     if (t.dataset && t.dataset.lgall) { ledgerList().slice(0, S.lgLimit).forEach(function (r) { if (!r.r) return; if (t.checked) S.lgSel[r.r] = 1; else delete S.lgSel[r.r]; }); lgRender(); return; }
     if (t.dataset && t.dataset.bmsel !== undefined) { B.val[t.dataset.bmsel] = t.value; B.on[t.dataset.bmsel] = !!t.value; bmKeepScroll(render); }
@@ -1520,9 +1613,7 @@ body.embed main{padding:20px 24px 32px}
     if (t.dataset.lgrange) {
       var now = new Date(Date.now() + 9 * 3600000), y = now.getUTCFullYear(), m = now.getUTCMonth(), iso = function (d) { return d.toISOString().slice(0, 10); };
       var R = t.dataset.lgrange;
-      if (R === 'all') { S.lgFrom = ''; S.lgTo = ''; }
-      else if (R === 'y0') { S.lgFrom = y + '-01-01'; S.lgTo = y + '-12-31'; }
-      else { var mm = R === 'm1' ? m - 1 : m; S.lgFrom = iso(new Date(Date.UTC(y, mm, 1))); S.lgTo = iso(new Date(Date.UTC(y, mm + 1, 0))); }
+      if (R === 'all') { S.lgYear = ''; S.lgFrom = ''; S.lgTo = ''; }
       S.lgLimit = 300; render(); return;
     }
     if (t.dataset.lkind && S.le) { leRead(); S.le.f.k = t.dataset.lkind; renderLe(); return; }
