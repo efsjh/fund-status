@@ -222,7 +222,7 @@ body.embed main{padding:20px 24px 32px}
   }
   function load() {
     if (!getKey()) { if (EMBED && !keyWait) { askErpKey(); return; } showGate(''); return; }
-    call('getBonds', function (r) { S.bonds = r; resetMatchCache(); });
+    call('getBonds', function (r) { S.bonds = r; fixBalance(r); resetMatchCache(); });
     call('getFund', function (r) { S.fund = r; S.fundIdx = null; });
     call('getSheets', function (r) { S.sheets = r; resetMatchCache(); });
     call('getSites', function (r) { S.sites = r; resetMatchCache(); });
@@ -304,6 +304,8 @@ body.embed main{padding:20px 24px 32px}
     });
     return out;
   }
+  // 잔금 = 계약금액 + 추가공사 − 수금 (ERP 채권관리 화면과 같은 계산 — 읽기 API의 balance는 추가공사를 빼먹는 현장이 있음)
+  function fixBalance(r) { ((r && r.items) || []).forEach(function (x) { x.balance = (Number(x.contractAmount) || 0) + (Number(x.extraWork) || 0) - (Number(x.collected) || 0); }); }
   function items() { return (S.bonds && S.bonds.items) || []; }
   // ERP에 아직 없는 발전소 (일자별 기록에 새로 입력된 이름 · 계약금 대기 포함) → 발전소 선택에 'ERP 미등록'으로 같이 보여줌
   function newSites() {
@@ -1576,7 +1578,7 @@ body.embed main{padding:20px 24px 32px}
       (L.from === 'ledger' ? '<div style="display:flex;gap:8px" role="group" aria-label="구분">' + ['입금', '지출'].map(function (k) { return '<button class="tab' + (f.k === k ? ' on' : '') + '" data-lkind="' + k + '"' + dis + '>' + k + '</button>'; }).join('') + '</div>' : '') +
       '<div class="le-grid">' +
         fld('leD', L.from === 'ledger' ? '일자' : inc ? '수금일' : '지급일', f.d, ' type="date"') +
-        fld('leA', L.from === 'ledger' ? '금액' : inc ? '수금액' : '지급액', f.a ? Number(String(f.a).replace(/[^\d\-]/g, '') || 0).toLocaleString('ko-KR') : '', ' inputmode="numeric" autocomplete="off"') +
+        fld('leA', L.from === 'ledger' ? '금액' : inc ? '수금액' : '지급액', f.a ? Number(String(f.a).replace(/[^\d\-]/g, '') || 0).toLocaleString('ko-KR') : '', ' inputmode="text" autocomplete="off" placeholder="마이너스는 앞에 - 입력"') +
         fld('leV', '거래처', f.v, ' autocomplete="off"') +
         fld('leS', '발전소명', f.site, ' list="leSiteList" autocomplete="off"') +
       '</div>' +
@@ -1592,7 +1594,7 @@ body.embed main{padding:20px 24px 32px}
   }
   function leRead() {
     var L = S.le, g = function (id) { var el = $(id); return el ? el.value : ''; };
-    L.f = { d: g('leD'), a: g('leA').replace(/[^\d\-]/g, ''), v: g('leV').trim(), m: g('leM').trim(), site: g('leS').trim(), k: L.f.k };
+    L.f = { d: g('leD'), a: (/^\s*[-−]/.test(g('leA')) ? '-' : '') + g('leA').replace(/[^\d]/g, ''), v: g('leV').trim(), m: g('leM').trim(), site: g('leS').trim(), k: L.f.k };
   }
   function leSubmit(del) {
     var L = S.le; if (!L || L.busy) return;
@@ -1654,7 +1656,7 @@ body.embed main{padding:20px 24px 32px}
     else if (a === 'dodel') leSubmit(true);
   });
   document.addEventListener('input', function (e) {
-    if (e.target.id === 'leA') { var v = e.target.value.replace(/[^\d]/g, ''); e.target.value = v ? Number(v).toLocaleString('ko-KR') : ''; }
+    if (e.target.id === 'leA') { var raw = e.target.value.trim(), neg = /^[-−]/.test(raw), v = raw.replace(/[^\d]/g, ''); e.target.value = (neg ? '-' : '') + (v ? Number(v).toLocaleString('ko-KR') : ''); }
   });
   document.addEventListener('keydown', function (e) {
     if (!S.le) return;
