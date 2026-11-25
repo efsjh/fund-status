@@ -758,8 +758,18 @@ body.embed main{padding:20px 24px 32px}
         '<small class="num">' + (it.fsGroup ? h(it.members.map(function (m) { return m.name; }).join(' + ')) + ' · ' : '') + '사용전검사 ' + h(dateTxt(it)) + (it.status && S.tab === '전체' ? ' · ' + h(it.status) : '') + '</small></button>';
     }).join('') + (list.length ? '' : '<div class="muted" style="padding:14px 10px">조건에 맞는 발전소가 없습니다.</div>') +
       (list.length > LIMIT ? '<div class="num muted" style="padding:8px 10px;font-size:12px">외 ' + (list.length - LIMIT) + '개 — 이름을 더 입력하거나 월을 선택하세요</div>' : '');
-    var a = dd.querySelector('.opt.act'); if (a) a.scrollIntoView({ block: 'nearest' });
+    var a = dd.querySelector('.opt.act');
+    if (a) {
+      // 목록 안에서만 스크롤 (페이지는 안 움직임) — 열 때는 선택한 발전소를 가운데로
+      var top = a.getBoundingClientRect().top - dd.getBoundingClientRect().top - dd.clientTop + dd.scrollTop, ht = a.offsetHeight;
+      if (S.ddCenter) dd.scrollTop = top - (dd.clientHeight - ht) / 2;
+      else if (top < dd.scrollTop) dd.scrollTop = top;
+      else if (top + ht > dd.scrollTop + dd.clientHeight) dd.scrollTop = top + ht - dd.clientHeight;
+    }
+    S.ddCenter = false;
   }
+  // 목록을 열 때 지금 선택된 발전소 위치에서 시작
+  function selAct() { var list = filtered().slice(0, 80); for (var i = 0; i < list.length; i++) if (list[i].id === S.selId) { S.ddCenter = true; return i; } return 0; }
 
   function pick(id) { S.selId = id; S.typed = ''; S.dd = false; save(); render(); }
 
@@ -2149,12 +2159,12 @@ body.embed main{padding:20px 24px 32px}
     else if (t.dataset.tab) { S.tab = t.dataset.tab; S.month = ''; S.typed = ''; S.dd = false; var f = inTab(S.tab)[0]; S.selId = f ? f.id : ''; save(); render(); }
     else if (t.dataset.kind) { S.kind = t.dataset.kind; render(); }
     else if (t.dataset.cal) { var now = new Date(), ym = S.calYM || (now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2)); var d = new Date(+ym.slice(0, 4), +ym.slice(5) - 1 + (+t.dataset.cal), 1); S.calYM = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); render(); }
-    else if (t.id === 'ddBtn') { S.dd = !S.dd; S.typed = ''; S.act = 0; renderDropdown(); if (S.dd) $('siteInput').focus(); }
+    else if (t.id === 'ddBtn') { S.dd = !S.dd; S.typed = ''; S.act = selAct(); renderDropdown(); if (S.dd) $('siteInput').focus(); }
     else if (t.id === 'reloadBtn') { S.bonds = S.fund = S.sheets = S.sites = S.matches = S.comm = null; S.cmLoading = false; S.cmPR = null; resetMatchCache(); closeMatch(); S.err = {}; render(); load(); }
     else if (t.dataset.id) { if (S.page !== 'site') { S.page = 'site'; S.tab = '전체'; } pick(t.dataset.id); }
   });
   document.addEventListener('mousedown', function (e) { if (e.target.closest('.opt, #ddBtn')) e.preventDefault(); });
-  document.addEventListener('focusin', function (e) { if (e.target.id === 'siteInput') { e.target.select(); S.dd = true; S.typed = ''; S.act = 0; renderDropdown(); } });
+  document.addEventListener('focusin', function (e) { if (e.target.id === 'siteInput') { e.target.select(); S.dd = true; S.typed = ''; S.act = selAct(); renderDropdown(); } });
   document.addEventListener('focusout', function (e) {
     if (e.target.id === 'siteInput') setTimeout(function () {
       if (document.activeElement && document.activeElement.id === 'siteInput') return;
@@ -2166,7 +2176,7 @@ body.embed main{padding:20px 24px 32px}
     if (e.target.id === 'siteInput') { S.typed = e.target.value; S.dd = true; S.act = 0; renderDropdown(); }
     else if (e.target.id === 'ledgerQ') { S.query = e.target.value; clearTimeout(S.qt); S.qt = setTimeout(function () { render(); var q = $('ledgerQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 250); }
   });
-  document.addEventListener('change', function (e) { if (e.target.id === 'monthSel') { S.month = e.target.value; S.typed = ''; S.dd = true; S.act = 0; renderDropdown(); $('siteInput').focus(); } });
+  document.addEventListener('change', function (e) { if (e.target.id === 'monthSel') { S.month = e.target.value; S.typed = ''; S.dd = true; S.act = selAct(); renderDropdown(); $('siteInput').focus(); } });
   document.addEventListener('keydown', function (e) {
     if (e.target.id !== 'siteInput') return;
     var list = filtered(), n = Math.min(list.length, 80);
