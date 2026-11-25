@@ -183,6 +183,7 @@ body.embed main{padding:20px 24px 32px}
     return s;
   };
   try { var saved = JSON.parse(localStorage.getItem('fs-view') || '{}'); if (saved.tab) S.tab = saved.tab; if (saved.selId) S.selId = saved.selId; } catch (e) {}
+  try { S.expView = localStorage.getItem('fs-expview') || 'cat'; } catch (e) { S.expView = 'cat'; }
   function save() { try { localStorage.setItem('fs-view', JSON.stringify({ tab: S.tab, selId: S.selId })); } catch (e) {} }
 
   /* ---------- 데이터 ---------- */
@@ -460,10 +461,26 @@ body.embed main{padding:20px 24px 32px}
       '<span class="muted" style="font-size:12px;line-height:1.6">원가는 오른쪽 \'기자재 및 지출 내역\'의 비고·거래처 단어로 나눠 더한 값이에요. 각 줄의 분류는 지출 내역의 작은 표시로 확인할 수 있어요.</span></section>';
 
     var g3 = 'grid-template-columns:96px 112px 120px minmax(0,1fr) 32px';
-    var exp = '<section class="card sec" style="flex:1 1 440px;min-width:0"><div style="display:flex;justify-content:space-between;gap:12px"><h2>기자재 및 지출 내역</h2><span class="num muted" style="font-size:12px">' + site.exp.length + '건</span></div><div class="scroll"><div style="min-width:510px">' +
-      '<div class="head" style="' + g3 + '"><span class="th">지급일</span><span class="th r">지급액</span><span class="th">거래처</span><span class="th">비고</span><span></span></div>' +
-      (site.exp.map(function (e, i) { return '<div class="row" style="' + g3 + '"><span class="num">' + e.d + subLbl(e) + '</span><span class="num r" style="font-weight:600">' + fmt(e.a) + '</span><span>' + h(e.v) + '</span><span style="color:var(--sub2);display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span>' + h(e.m) + '</span><span class="chip" style="font-size:11px;padding:1px 8px;' + COST_COL[costCat(e)] + '">' + h(costCat(e)) + '</span></span>' + leBtn('exp', i) + '</div>'; }).join('') || '<div class="muted" style="padding:20px 8px">등록된 지출 내역이 없습니다.</div>') +
-      '<div class="row" style="' + g3 + ';border:0;font-weight:700"><span>합계</span><span class="num r" style="color:var(--amber)">' + fmt(expSum) + '</span><span></span><span></span><span></span></div></div></div></section>';
+    var expRow = function (e, i, showCat) { var st = payStage(e.m); return '<div class="row" style="' + g3 + '"><span class="num">' + e.d + subLbl(e) + '</span><span class="num r" style="font-weight:600">' + fmt(e.a) + '</span><span>' + h(e.v) + '</span><span style="color:var(--sub2);display:flex;flex-wrap:wrap;gap:6px;align-items:center">' + (!showCat && st ? '<span class="chip" style="font-size:11px;padding:1px 6px;background:#EEF2F6;color:#4A5668">' + st + '</span>' : '') + '<span>' + h(e.m) + '</span>' + (showCat ? '<span class="chip" style="font-size:11px;padding:1px 8px;' + COST_COL[costCat(e)] + '">' + h(costCat(e)) + '</span>' : '') + '</span>' + leBtn('exp', i) + '</div>'; };
+    var byCat = S.expView !== 'date';
+    var viewBtns = '<div style="display:flex;gap:6px">' + [['cat', '목록별'], ['date', '일자별']].map(function (x) { return '<button class="tab' + ((x[0] === 'cat') === byCat ? ' on' : '') + '" data-expview="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>';
+    var body;
+    if (!site.exp.length) body = '<div class="muted" style="padding:20px 8px">등록된 지출 내역이 없습니다.</div>';
+    else if (!byCat) body = '<div class="scroll"><div style="min-width:510px"><div class="head" style="' + g3 + '"><span class="th">지급일</span><span class="th r">지급액</span><span class="th">거래처</span><span class="th">비고</span><span></span></div>' +
+      site.exp.map(function (e, i) { return expRow(e, i, true); }).join('') +
+      '<div class="row" style="' + g3 + ';border:0;font-weight:700"><span>합계</span><span class="num r" style="color:var(--amber)">' + fmt(expSum) + '</span><span></span><span></span><span></span></div></div></div>';
+    else body = '<div style="display:flex;flex-direction:column;gap:10px">' + EXP_GROUPS.map(function (c) {
+        var idx = []; site.exp.forEach(function (e, i) { if (costCat(e) === c) idx.push(i); });
+        var L = idx.map(function (i) { return site.exp[i]; }), sum = L.reduce(function (a, e) { return a + e.a; }, 0);
+        var chips = (PAY_CHECK[c] || []).map(function (it) {
+          var mine = it.w ? L.filter(function (e) { return String(e.m).indexOf(it.w) >= 0 || String(e.v).indexOf(it.w) >= 0; }) : L;
+          return it.s.map(function (st) { var ok = st ? mine.some(function (e) { return payStage(e.m) === st; }) : mine.length > 0;
+            return '<span class="chip" style="font-size:11px;padding:2px 8px;' + (ok ? 'background:#DCFCE7;color:#166534' : 'background:#FEF3C7;color:#92400E') + '">' + (ok ? '✓ ' : '! ') + h(st ? (it.n ? it.n + ' ' : '') + st : it.n || c) + '</span>'; }).join('');
+        }).join('');
+        return '<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#F8FAFC"><span style="display:flex;gap:8px;align-items:center"><span class="chip" style="font-size:12px;' + COST_COL[c] + '">' + h(c) + '</span><span class="muted num" style="font-size:12px">' + L.length + '건</span></span><span style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">' + chips + '<b class="num" style="min-width:100px;text-align:right">' + fmt(sum) + '</b></span></div>' +
+          (L.length ? '<div class="scroll"><div style="min-width:510px;padding:0 4px">' + idx.map(function (i) { return expRow(site.exp[i], i, false); }).join('') + '</div></div>' : '<div style="padding:8px 12px;font-size:12px;color:#92400E;border-top:1px solid var(--line)">지급 내역 없음</div>') + '</div>';
+      }).join('') + '<div style="display:flex;justify-content:space-between;padding:8px 12px;font-weight:700"><span>합계</span><span class="num" style="color:var(--amber)">' + fmt(expSum) + '</span></div></div>';
+    var exp = '<section class="card sec" style="flex:1 1 440px;min-width:0"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><h2>기자재 및 지출 내역</h2><span style="display:flex;gap:10px;align-items:center">' + viewBtns + '<span class="num muted" style="font-size:12px">' + site.exp.length + '건</span></span></div>' + body + '</section>';
 
     return out + '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><div style="flex:1 1 560px;min-width:0;display:flex;flex-direction:column;gap:20px">' + inSec + pnl + '</div>' + exp + '</div>';
   }
@@ -1453,6 +1470,17 @@ body.embed main{padding:20px 24px 32px}
   ];
   var COST_ORDER = ['한전선로비', '영업비', '구조검토, 설계감리', '구조물대', '모듈, 인버터', '하도급'];
   var COST_COL = { '하도급': 'background:#E0E7FF;color:#3730A3', '모듈, 인버터': 'background:#DBEAFE;color:#1D4ED8', '구조물대': 'background:#FCE7F3;color:#9D174D', '구조검토, 설계감리': 'background:#EDE9FE;color:#5B21B6', '한전선로비': 'background:#FEF3C7;color:#92400E', '영업비': 'background:#DCFCE7;color:#166534', '보험료 기타비용': 'background:#EEF2F6;color:#4A5668' };
+  // 지출 내역 '목록별' 보기: 묶음 순서 + 묶음별 지급 체크 (w: 비고·거래처 단어, s: 확인할 단계, '' = 지급 여부만)
+  var EXP_GROUPS = ['모듈, 인버터', '하도급', '구조물대', '구조검토, 설계감리', '한전선로비', '영업비', '보험료 기타비용'];
+  var PAY_CHECK = {
+    '모듈, 인버터': [{ n: '모듈', w: '모듈', s: ['계약금', '잔금'] }, { n: '인버터', w: '인버터', s: ['계약금', '잔금'] }],
+    '하도급': [{ s: ['계약금', '잔금'] }],
+    '구조물대': [{ n: '구조물', s: [''] }],
+    '구조검토, 설계감리': [{ n: '구조검토·설계감리', s: [''] }],
+    '한전선로비': [{ n: '한전선로비', s: [''] }],
+    '영업비': [{ n: '영업비', s: [''] }]
+  };
+  function payStage(m) { m = String(m || ''); return /계약금|선급금/.test(m) ? '계약금' : /중도금/.test(m) ? '중도금' : /잔금/.test(m) ? '잔금' : ''; }
   function costCat(e) {
     var m = String(e.m || ''), v = String(e.v || '');
     for (var i = 0; i < COST_ORDER.length; i++) {
@@ -2115,6 +2143,7 @@ body.embed main{padding:20px 24px 32px}
   document.addEventListener('click', function (e) {
     var t = e.target.closest('button'); if (!t) return;
     if (t.dataset.page) { if (EMBED) return; S.page = t.dataset.page; S.dd = false; render(); }
+    else if (t.dataset.expview) { S.expView = t.dataset.expview; try { localStorage.setItem('fs-expview', S.expView); } catch (x) {} render(); }
     else if (t.dataset.tab) { S.tab = t.dataset.tab; S.month = ''; S.typed = ''; S.dd = false; var f = inTab(S.tab)[0]; S.selId = f ? f.id : ''; save(); render(); }
     else if (t.dataset.kind) { S.kind = t.dataset.kind; render(); }
     else if (t.dataset.cal) { var now = new Date(), ym = S.calYM || (now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2)); var d = new Date(+ym.slice(0, 4), +ym.slice(5) - 1 + (+t.dataset.cal), 1); S.calYM = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); render(); }
