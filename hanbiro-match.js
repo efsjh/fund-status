@@ -12,7 +12,7 @@
   'use strict';
 
   /* ===================== 설정 ===================== */
-  const LS_URL = 'hm.gsUrl', LS_KEY = 'hm.gsKey';
+  const LS_URL = 'hm.gsUrl', LS_KEY = 'hm.gsKey', LS_W = 'hm.width';
   const mem = {};
   const store = {
     get(k) { try { return localStorage.getItem(k) || mem[k] || ''; } catch (e) { return mem[k] || ''; } },
@@ -65,10 +65,15 @@
   /* ===================== 화면 ===================== */
   const CSS = `
   #hm-btn{position:fixed;right:18px;bottom:18px;z-index:9998;background:#2563eb;color:#fff;border:none;border-radius:22px;padding:10px 16px;font:600 14px/1 sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.2);cursor:pointer}
-  #hm-panel{position:fixed;top:0;right:0;height:100vh;width:min(560px,100vw);z-index:9999;background:var(--hm-bg);color:var(--hm-fg);box-shadow:-6px 0 24px rgba(0,0,0,.18);display:none;flex-direction:column;font:14px/1.5 -apple-system,"Malgun Gothic",sans-serif;
+  #hm-panel{position:fixed;top:0;right:0;height:100vh;width:min(var(--hm-w,480px),100vw);z-index:9999;background:var(--hm-bg);color:var(--hm-fg);box-shadow:-6px 0 24px rgba(0,0,0,.18);display:none;flex-direction:column;font:14px/1.5 -apple-system,"Malgun Gothic",sans-serif;
     --hm-bg:#fff;--hm-fg:#1f2328;--hm-mut:#6b7280;--hm-line:#e3e6ea;--hm-soft:#f5f6f8;--hm-acc:#2563eb;--hm-ok:#15803d;--hm-okbg:#e7f6ec;--hm-bad:#b91c1c;--hm-badbg:#fdecec;--hm-warn:#a16207;--hm-warnbg:#fdf6e3}
   @media (prefers-color-scheme:dark){#hm-panel{--hm-bg:#1e2125;--hm-fg:#e6e8eb;--hm-mut:#9aa1ab;--hm-line:#30353b;--hm-soft:#15171a;--hm-acc:#6b9bff;--hm-ok:#4ade80;--hm-okbg:#163222;--hm-bad:#f87171;--hm-badbg:#3a1c1c;--hm-warn:#facc15;--hm-warnbg:#3a3214}}
   #hm-panel.on{display:flex}
+  html.hm-open body{padding-right:var(--hm-w,480px);box-sizing:border-box;transition:padding-right .15s}
+  html.hm-open #hm-btn{display:none}
+  @media (max-width:900px){html.hm-open body{padding-right:0}}
+  #hm-grip{position:absolute;left:-4px;top:0;width:8px;height:100%;cursor:ew-resize;z-index:1}
+  #hm-grip:hover,#hm-grip.drag{background:rgba(37,99,235,.25)}
   #hm-panel header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--hm-line)}
   #hm-panel header b{font-size:16px;flex:1}
   #hm-panel button{font:inherit;cursor:pointer;border:1px solid var(--hm-line);background:var(--hm-bg);color:var(--hm-fg);border-radius:6px;padding:6px 10px}
@@ -120,11 +125,21 @@
         <input id="hm-key" placeholder="키">
         <div><button class="pri" id="hm-save">저장</button> <button id="hm-test">연결 확인</button> <span id="hm-test-r" style="font-size:12px"></span></div>
       </div>
-      <div id="hm-top"><input id="hm-site" list="hm-sites" placeholder="발전소명 (일자별 기록 G열 이름)"><datalist id="hm-sites"></datalist><button class="pri" id="hm-run">매칭 시작</button></div>
+      <div id="hm-top"><input id="hm-site" list="hm-sites" placeholder="발전소명 (일자별 기록 G열 이름)"><datalist id="hm-sites"></datalist><button id="hm-pagesite" title="왼쪽 화면에서 선택한 발전소 가져오기">← 화면</button><button class="pri" id="hm-run">매칭 시작</button></div>
       <div id="hm-body"><div class="m" style="color:var(--hm-mut)">발전소를 고르고 [매칭 시작]을 누르세요. 한비로가 로그인된 크롬 탭이 있어야 합니다.</div></div>
       <div id="hm-foot"><span id="hm-cnt">선택 0건</span><button class="pri" id="hm-apply" disabled>선택한 것 반영</button></div>`;
     document.body.appendChild(p);
-    $('#hm-x').onclick = () => p.classList.remove('on');
+    $('#hm-x').onclick = close;
+    // 왼쪽 가장자리 끌어서 폭 조절 (화면 본문은 그만큼 왼쪽으로 밀림)
+    const grip = document.createElement('div'); grip.id = 'hm-grip'; grip.title = '끌어서 폭 조절'; p.appendChild(grip);
+    grip.addEventListener('mousedown', e => {
+      e.preventDefault(); grip.classList.add('drag');
+      const mv = ev => setW(window.innerWidth - ev.clientX);
+      const up = () => { grip.classList.remove('drag'); document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); store.set(LS_W, String(curW)); };
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    });
+    setW(Number(store.get(LS_W)) || 480);
+    $('#hm-pagesite').onclick = () => { const v = pageSite(); if (v) $('#hm-site').value = v; };
     $('#hm-gear').onclick = () => { const s = $('#hm-set'); s.style.display = s.style.display === 'none' ? 'grid' : 'none'; };
     $('#hm-url').value = store.get(LS_URL); $('#hm-key').value = store.get(LS_KEY);
     $('#hm-save').onclick = () => { store.set(LS_URL, $('#hm-url').value.trim()); store.set(LS_KEY, $('#hm-key').value.trim()); $('#hm-test-r').textContent = '저장됨'; loadSites(); };
@@ -139,11 +154,34 @@
     if (!store.get(LS_URL) || !store.get(LS_KEY)) $('#hm-set').style.display = 'grid';
   }
 
+  let curW = 480, lastPageSite = '', watch = null;
+  function setW(w) {
+    curW = Math.max(340, Math.min(Math.round(w), Math.floor(window.innerWidth * 0.7)));
+    document.documentElement.style.setProperty('--hm-w', curW + 'px');
+  }
+  // 왼쪽 화면(현장별 자금현황)의 '발전소 선택' 값
+  function pageSite() {
+    const el = document.getElementById('siteInput');
+    return (el && el.value.trim()) || window.HSEF_currentSite || '';
+  }
   function open() {
     mount();
     $('#hm-panel').classList.add('on');
-    if (window.HSEF_currentSite && !$('#hm-site').value) $('#hm-site').value = window.HSEF_currentSite;
+    document.documentElement.classList.add('hm-open');
+    lastPageSite = pageSite();
+    if (lastPageSite && !$('#hm-site').value) $('#hm-site').value = lastPageSite;
+    // 사이드바를 연 채로 왼쪽에서 발전소를 바꾸면 따라 바뀜
+    clearInterval(watch);
+    watch = setInterval(() => {
+      const v = pageSite();
+      if (v && v !== lastPageSite) { lastPageSite = v; if (!$('#hm-run').disabled) $('#hm-site').value = v; }
+    }, 800);
     loadSites();
+  }
+  function close() {
+    $('#hm-panel').classList.remove('on');
+    document.documentElement.classList.remove('hm-open');
+    clearInterval(watch);
   }
 
   let SITES = [], ALIASES = [];
