@@ -270,7 +270,7 @@
     const all = (doc.title || info.title) + '\n' + body;
     const d = {
       id: info.id, title: info.title || doc.title, docNo: info.docNo,
-      drafted: yymmdd(info.drafted), completed: yymmdd(info.completed),
+      drafted: yymmdd(info.drafted), completed: '',
       line: info.line, current: info.current,
       approved: !info.current,                                  // 현재 결재자가 없으면 결재 완료
       card: /카드결제|법인카드/.test(all),
@@ -282,6 +282,21 @@
       attachments: doc.attachments || [], comments: doc.comments || '',
       sites: [], shares: {}, share: null, bundle: false, bundleOK: false, needAttach: false,
     };
+    // 지급일 = 마지막 결재자(이도훈) 승인일 — 결의서 화면의 '기안 09/15 승인 09/15 승인 11/17' 중 마지막
+    const hd = doc.header || '';
+    const dm = /기안일\s*(\d\d)\/(\d\d)\/(\d\d)/.exec(hd);
+    if (dm) d.drafted = '20' + dm[1] + '-' + dm[2] + '-' + dm[3];
+    const stamps = [...hd.matchAll(/(?:승인|전결|결재|대결)\s*(\d\d)\/(\d\d)/g)];
+    if (d.approved && stamps.length && dm) {
+      const last = stamps[stamps.length - 1];
+      let yy = 2000 + Number(dm[1]);
+      if (Number(last[1]) < Number(dm[2])) yy += 1;            // 12월 기안 → 1월 승인
+      d.completed = yy + '-' + last[1] + '-' + last[2];
+    } else if (d.approved) {
+      // 화면에서 못 읽으면 목록 날짜 중 늦은 쪽
+      const a = yymmdd(info.drafted), b = yymmdd(info.completed);
+      d.completed = a > b ? a : b;
+    }
     const found = sitesIn(all, target);
     d.sites = found.map(f => f.site);
     if (!d.sites.includes(target)) d.sites.unshift(target);
@@ -391,7 +406,7 @@
           (pc.results || []).forEach(r => {
             const it = res.items.find(x => x.key === r.id); if (!it) return;
             it.paid = r.hits; it.checked = r.hits.length > 0;
-            const dt = guessDate(r.hits[0], it.doc); if (dt) it.date = dt;
+            // 일자는 이도훈 승인일 그대로 둠 (지출희망일·일정표 날짜로 바꾸지 않음)
           });
           if (pc.unavailable) log('전체일정표 _검색인덱스 탭이 없어 지급 확인을 건너뜁니다');
         } catch (e) { log('지급 확인 실패: ' + e.message); }
