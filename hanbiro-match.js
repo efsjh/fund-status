@@ -283,7 +283,9 @@
       sites: [], shares: {}, share: null, bundle: false, bundleOK: false, needAttach: false,
     };
     // 지급일 = 마지막 결재자(이도훈) 승인일 — 결의서 화면의 '기안 09/15 승인 09/15 승인 11/17' 중 마지막
-    const hd = doc.header || '';
+    // 결의서 화면 머리(기안일·승인 도장)는 제목이 목록과 같을 때만 믿음 (화면 전환이 늦으면 앞 결의서 것이 남아 있을 수 있음)
+    const nz = x => (x || '').replace(/\s+/g, '');
+    const hd = doc.header && nz(doc.title) === nz(info.title) ? doc.header : '';
     const dm = /기안일\s*(\d\d)\/(\d\d)\/(\d\d)/.exec(hd);
     if (dm) d.drafted = '20' + dm[1] + '-' + dm[2] + '-' + dm[3];
     const stamps = [...hd.matchAll(/(?:승인|전결|결재|대결)\s*(\d\d)\/(\d\d)/g)];
