@@ -248,7 +248,9 @@
       card: /카드결제|법인카드/.test(all),
       usd: /US\$\s*[\d,.]+/.test(body) ? (body.match(/US\$\s*([\d,.]+)/) || [])[1] : '',
       total: money((body.match(/지급요청금액\s*₩?\s*([\d,]+)/) || body.match(/지출결의액\s*₩?\s*([\d,]+)/) || body.match(/합계금액\s*([\d,]+)/) || [])[1]),
-      vendor: ((body.match(/거\s*래\s*처\s*(.+?)\s*지급\s*방법/) || [])[1] || '').replace(/\s+/g, ' ').trim(),
+      vendor: ((body.match(/거\s*래\s*처\s*(.+?)\s*지급\s*방법/) || [])[1] ||
+        // '연번 내역 지출일 금액 거래처 지급방법' 표 형식
+        (body.match(/\n\s*\d+\s+.+?\s+\d{4}[-.]\s?\d{1,2}[-.]\s?\d{1,2}\.?\s+[\d,]+\s+(.+?)\s+(?:계좌이체|카드|현금|자동이체)/) || [])[1] || '').replace(/\s+/g, ' ').trim(),
       attachments: doc.attachments || [], comments: doc.comments || '',
       sites: [], shares: {}, share: null, bundle: false, bundleOK: false, needAttach: false,
     };
