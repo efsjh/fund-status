@@ -103,6 +103,34 @@
   .hm-sum.ok{color:var(--hm-ok)} .hm-sum.bad{color:var(--hm-bad)}
   .hm-box{background:var(--hm-soft);border-radius:8px;padding:10px;font-size:13px}
   .hm-box table{width:100%} .hm-box td:last-child{text-align:right}
+  .hm-tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:8px}
+  .hm-tile{border-radius:8px;padding:7px 4px;text-align:center;background:var(--hm-soft)}
+  .hm-tile b{display:block;font-size:19px;line-height:1.25} .hm-tile span{font-size:11.5px;color:var(--hm-mut)}
+  .hm-tile.ok{background:var(--hm-okbg)} .hm-tile.ok b{color:var(--hm-ok)} .hm-tile.bad{background:var(--hm-badbg)} .hm-tile.bad b{color:var(--hm-bad)}
+  .hm-tile.warn{background:var(--hm-warnbg)} .hm-tile.warn b{color:var(--hm-warn)}
+  .hm-money{display:flex;border:1px solid var(--hm-line);border-radius:8px;padding:9px 6px;font-size:12.5px;color:var(--hm-mut)}
+  .hm-money div{flex:1;text-align:center} .hm-money b{display:block;font-size:15px;color:var(--hm-fg);font-variant-numeric:tabular-nums} .hm-money b.plus{color:var(--hm-bad)}
+  #hm-panel .hm-sec{display:flex;align-items:baseline;gap:6px;margin:16px 0 6px;font-weight:700;font-size:14.5px}
+  #hm-panel .hm-sec small{font-weight:400;color:var(--hm-mut);font-size:12px} #hm-panel .hm-sec .tot{margin-left:auto;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .hm-card{border:1px solid var(--hm-line);border-left:4px solid var(--hm-warn);border-radius:8px;padding:10px 12px;margin:0 0 8px}
+  .hm-card.bad{border-left-color:var(--hm-bad)}
+  .hm-card .r1{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+  .hm-card .r1 input{margin-top:3px;width:16px;height:16px;flex:none}
+  .hm-card .ttl{flex:1;font-weight:600} .hm-card .ttl a{color:var(--hm-fg);text-decoration:none} .hm-card .ttl a:hover{text-decoration:underline}
+  .hm-card .amt{font-weight:700;font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .hm-kv{display:grid;grid-template-columns:62px 1fr;gap:2px 8px;margin-top:6px;font-size:13px} .hm-kv>span:nth-child(odd){color:var(--hm-mut)}
+  .hm-add{margin-top:8px;background:var(--hm-soft);border-radius:6px;padding:8px 10px;font-size:13px}
+  .hm-addr{display:grid;grid-template-columns:118px 84px 1fr 92px;gap:6px} .hm-addr.h{color:var(--hm-mut);font-size:11.5px;margin-bottom:2px}
+  #hm-panel .hm-add input{width:100%;padding:4px 6px;font-size:12.5px;background:var(--hm-bg)}
+  #hm-panel .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .hm-note{margin-top:6px;font-size:12.5px;color:var(--hm-warn)} .hm-note.ok{color:var(--hm-ok)} .hm-note.mut{color:var(--hm-mut)}
+  .hm-tb{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:4px}
+  .hm-tb th{font-weight:400;color:var(--hm-mut);text-align:left;font-size:12px;border-bottom:1px solid var(--hm-line);padding:4px}
+  .hm-tb td{padding:6px 4px;border-bottom:1px solid var(--hm-line);vertical-align:top} .hm-tb .s{color:var(--hm-mut);font-size:12px}
+  .hm-tb a{color:var(--hm-fg);text-decoration:none} .hm-tb a:hover{text-decoration:underline}
+  .hm-tb.pl tr.b td{font-weight:700}
+  .hm-logd{margin-top:14px;font-size:12px;color:var(--hm-mut)} .hm-logd summary{cursor:pointer}
+  #hm-foot b{color:var(--hm-fg)}
   .hm-warnbar{background:var(--hm-warnbg);color:var(--hm-warn);border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:8px}
   .hm-set{display:grid;gap:6px;padding:10px 14px;border-bottom:1px solid var(--hm-line);background:var(--hm-soft)}
   `;
@@ -248,7 +276,7 @@
       card: /카드결제|법인카드/.test(all),
       usd: /US\$\s*[\d,.]+/.test(body) ? (body.match(/US\$\s*([\d,.]+)/) || [])[1] : '',
       total: money((body.match(/지급요청금액\s*₩?\s*([\d,]+)/) || body.match(/지출결의액\s*₩?\s*([\d,]+)/) || body.match(/합계금액\s*([\d,]+)/) || [])[1]),
-      vendor: ((body.match(/거\s*래\s*처\s*(.+?)\s*지급\s*방법/) || [])[1] ||
+      vendor: ((body.match(/거\s*래\s*처[ \t]*(\S.*?)\s*지급\s*방법/) || [])[1] ||
         // '연번 내역 지출일 금액 거래처 지급방법' 표 형식
         (body.match(/\n\s*\d+\s+.+?\s+\d{4}[-.]\s?\d{1,2}[-.]\s?\d{1,2}\.?\s+[\d,]+\s+(.+?)\s+(?:계좌이체|카드|현금|자동이체)/) || [])[1] || '').replace(/\s+/g, ' ').trim(),
       attachments: doc.attachments || [], comments: doc.comments || '',
@@ -262,6 +290,10 @@
     const tSites = sitesIn(ttl, target).map(f => f.site);
     const titleSingle = tSites.includes(target) && tSites.length === 1 && !/외\s?\d+\s?건|[,，·]/.test(ttl);
     if (titleSingle) d.sites = [target];
+    d.titleHasTarget = tSites.includes(target);
+    // 거래처 이름이 발전소 이름과 같은 경우(예: 지안 구조검토)는 발전소로 보지 않음
+    const vend = ((body.match(/거\s*래\s*처[ \t]*(\S.*?)\s*지급\s*방법/) || [])[1] || '').replace(/\s+/g, '');
+    d.titleOther = tSites.filter(x => x !== target && !(vend && (vend.indexOf(x) >= 0 || x.indexOf(vend) >= 0)));
     // 다른 현장 이름을 못 알아봐도 '○○ 외 n건'이나 쉼표로 나열된 목록이면 묶음으로 봄
     const listHint = /외\s?\d+\s?건/.test(all) || namesOf(target).some(n => n.length >= 1 &&
       new RegExp('[,，·]\\s*' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![가-힣])|(^|[^가-힣])' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[,，·]').test(all));
@@ -390,6 +422,8 @@
 
     docs.forEach(d => {
       const base = { doc: d };
+      // 제목에 다른 발전소만 있고 이 현장은 없음 → 현장명 잘못 썼거나 참조 잘못 걸림
+      if (!d.titleHasTarget && d.titleOther.length) return add(Object.assign(base, { kind: 'check', amount: d.total }));
       if (d.card) return add(Object.assign(base, { kind: 'card', amount: d.share || d.total }));
       if (!d.approved) return add(Object.assign(base, { kind: 'pending', amount: d.share || d.total }));
       if (d.usd && !d.total) return add(Object.assign(base, { kind: 'usd', amount: 0 }));
@@ -411,7 +445,7 @@
           return add(Object.assign(base, { kind: 'split', amount: d.total, row: bRow, parts, checked: d.bundleOK }));
         }
       }
-      if (amt) return add(Object.assign(base, { kind: 'missing', amount: amt, date: d.completed || d.drafted, checked: false }));
+      if (amt) return add(Object.assign(base, { kind: 'missing', amount: amt, amountEdit: amt, siteName: site, memo: memoFor(site, d), date: d.completed || d.drafted, checked: false }));
       // 묶음인데 이 현장 금액을 모름 + 일자별 기록에도 없음
       return add(Object.assign(base, { kind: 'missingBundle', amount: 0, date: d.completed || d.drafted,
         parts: d.sites.map(s => ({ site: s, amount: d.shares[s] || 0 })), checked: false }));
@@ -439,68 +473,112 @@
 
   /* ===================== 결과 그리기 ===================== */
   const KIND = {
-    missing: ['일자별 기록에 없음', 'hm-r'], missingBundle: ['없음 · 금액 확인 필요', 'hm-r'],
+    missing: ['입력 누락', 'hm-r'], missingBundle: ['입력 누락 · 금액 확인', 'hm-r'], check: ['확인 필요', 'hm-o'],
     setG: ['발전소명 수정', 'hm-o'], split: ['묶음 나누기', 'hm-o'],
-    ok: ['일치', 'hm-g'], pending: ['미승인', 'hm-n'], card: ['카드', 'hm-n'], usd: ['외화 · 원화금액 확인', 'hm-n'],
+    ok: ['일치', 'hm-g'], pending: ['미승인', 'hm-n'], card: ['카드', 'hm-n'], usd: ['외화', 'hm-n'],
   };
+  const sd6 = s => (s || '').slice(2);   // 2026-10-08 → 26-10-08
 
-  function docLink(d) {
-    return `<a href="${HANBIRO_DOC(d.id)}" target="_blank" rel="noopener">${esc(d.title)}</a>`;
+  function docLink(d, text) {
+    return `<a href="${HANBIRO_DOC(d.id)}" target="_blank" rel="noopener">${esc(text || d.title)}</a>`;
+  }
+  // 결재선: 김지현 → 이도훈 ✓ 2025-11-26 완료 / 이도훈 대기
+  function apprText(d) {
+    const line = (d.line || []).filter(Boolean);
+    if (!d.approved) return `${esc(line.join(' → '))}${line.length ? ' · ' : ''}<b>${esc(d.current)} 대기</b> <span class="hm-tag hm-n">미승인</span>`;
+    return `${esc(line.join(' → '))} ✓ &nbsp;${esc(d.completed || d.drafted)} 완료`;
+  }
+  function siteText(it) {
+    const d = it.doc;
+    if (it.kind === 'check') return `<b>${esc(d.titleOther.join(', '))}</b> <span class="hm-tag hm-o">제목 ≠ ${esc(STATE.site)}</span>`;
+    if (d.titleHasTarget) return `${esc(STATE.site)} <span class="hm-tag hm-g">제목 일치</span>`;
+    if (d.bundle) return `${esc(d.sites.join(', '))} <span class="hm-tag hm-n">${d.sites.length}현장 묶음 · 제목에 발전소 없음</span>`;
+    return `${esc(STATE.site)} <span class="hm-tag hm-n">본문 기준</span>`;
   }
 
   function render() {
-    const { site, res, docs } = STATE;
+    const { site, res } = STATE;
     const body = $('#hm-body');
-    const logHtml = $('#hm-log') ? $('#hm-log').outerHTML : '';
+    const logTxt = $('#hm-log') ? $('#hm-log').textContent : '';
     const notes = ALIASES.filter(a => a.site === site && a.note).map(a => a.note);
-    let h = logHtml;
+    const cnt = k => res.items.filter(i => k.includes(i.kind)).length;
+    const nDocs = res.items.length;
+    let h = '';
     if (notes.length) h += `<div class="hm-warnbar">⚠ ${esc([...new Set(notes)].join(' / '))}</div>`;
+    h += `<div class="hm-tiles">
+      <div class="hm-tile"><b>${nDocs}</b><span>결의서</span></div>
+      <div class="hm-tile ok"><b>${cnt(['ok'])}</b><span>일치</span></div>
+      <div class="hm-tile bad"><b>${cnt(['missing', 'missingBundle', 'setG', 'split'])}</b><span>입력·수정</span></div>
+      <div class="hm-tile warn"><b>${cnt(['check'])}</b><span>확인 필요</span></div>
+      <div class="hm-tile"><b>${cnt(['pending', 'card', 'usd'])}</b><span>미승인 등</span></div></div>`;
+    h += `<div id="hm-money"></div>`;
 
-    const sec = (title, kinds, sub) => {
-      const list = res.items.filter(i => kinds.includes(i.kind));
-      if (!list.length) return '';
-      return `<div class="hm-sec">${title} <small>${list.length}건${sub ? ' · ' + sub : ''}</small></div>` + list.map(itemHtml).join('');
-    };
-    h += sec('🟥 일자별 기록에 없음', ['missing', 'missingBundle'], '전체일정표에 지급이 확인된 건만 기본 체크');
-    h += sec('🟧 발전소명 잘못 걸림', ['setG']);
-    h += sec('🟨 묶음이라 나눠야 함', ['split'], '합계가 맞아야 반영 가능');
+    const total = list => won(list.reduce((s, i) => s + (i.amount || 0), 0));
+    const sec = (icon, title, sub, list, body) => list.length
+      ? `<div class="hm-sec">${icon} ${title} <small>${sub}</small><span class="tot">${total(list)}</span></div>` + body : '';
+    const L = k => res.items.filter(i => k.includes(i.kind));
+
+    h += sec('🔴', '입력 누락', '이도훈 승인 끝 · 일자별 기록에 없음', L(['missing', 'missingBundle']), L(['missing', 'missingBundle']).map(cardHtml).join(''));
+    h += sec('🟠', '확인 필요', `제목의 발전소가 ${esc(site)}이(가) 아님`, L(['check']), L(['check']).map(cardHtml).join(''));
+    h += sec('🟡', '발전소명 수정', '일자별 기록에 있는데 G열이 다름', L(['setG']), L(['setG']).map(cardHtml).join(''));
+    h += sec('🟡', '묶음 나누기', '합계가 결의서와 같아야 반영', L(['split']), L(['split']).map(cardHtml).join(''));
+
+    const pend = L(['pending', 'card', 'usd']);
+    h += sec('⏳', '미승인 · 카드 · 외화', '입력 안 함 · 승인 끝나면 다시 매칭', pend,
+      `<table class="hm-tb"><tr><th>결의서</th><th>상태</th><th class="n">금액</th></tr>` + pend.map(it => {
+        const d = it.doc;
+        const st = it.kind === 'pending' ? esc(d.current) + ' 대기' : it.kind === 'card' ? '카드결제' : 'US$ ' + esc(d.usd);
+        return `<tr><td>${docLink(d, shortTitle(d.title, []) || d.title)}<div class="s">${esc(d.vendor || '거래처 ?')} · 기안 ${esc(sd6(d.drafted))}${d.bundle ? ' · ' + d.sites.length + '현장 묶음' : ''}</div></td><td>${st}</td><td class="n">${won(it.amount)}</td></tr>`;
+      }).join('') + `</table>`);
+
     if (res.dup.length) {
-      h += `<div class="hm-sec">⬜ 중복 의심 <small>${res.dup.length}묶음 · 알림만</small></div>` + res.dup.map(g =>
-        `<div class="hm-item"><div class="t">${won(g[0].amount)}원 × ${g.length}줄</div>${g.map(r => `<div class="m">${r.row}행 · ${r.date} · ${esc(r.vendor)} · ${esc(r.memo)}</div>`).join('')}</div>`).join('');
+      h += `<div class="hm-sec">⚪ 중복 의심 <small>같은 금액 줄이 여러 개 · 알림만</small></div><table class="hm-tb"><tr><th>행</th><th>일자 · 내용</th><th class="n">금액</th></tr>` +
+        res.dup.map(g => g.map(r => `<tr><td>${r.row}</td><td>${esc(r.date)}<div class="s">${esc(r.vendor)} · ${esc(r.memo)}</div></td><td class="n">${won(r.amount)}</td></tr>`).join('')).join('') + `</table>`;
     }
-    h += sec('⬜ 미승인 · 카드 · 외화', ['pending', 'card', 'usd'], '입력 안 함');
     if (res.orphan.length) {
-      h += `<div class="hm-sec">⬜ 결의서를 못 찾은 이 현장 지출 <small>${res.orphan.length}줄 · 묶음 결의서·다른 이름일 수 있음</small></div>` +
-        res.orphan.map(r => `<div class="hm-item"><div class="m">${r.row}행 · ${r.date} · ${won(r.amount)} · ${esc(r.vendor)} · ${esc(r.memo)}</div></div>`).join('');
+      h += `<div class="hm-sec">⚪ 결의서를 못 찾은 지출 <small>일자별 기록에만 있음 · 묶음·다른 이름일 수 있음</small><span class="tot">${won(res.orphan.reduce((s, r) => s + r.amount, 0))}</span></div>
+        <table class="hm-tb"><tr><th>행</th><th>일자 · 내용</th><th class="n">금액</th></tr>` +
+        res.orphan.map(r => `<tr><td>${r.row}</td><td>${esc(r.date)}<div class="s">${esc(r.vendor)} · ${esc(r.memo)}</div></td><td class="n">${won(r.amount)}</td></tr>`).join('') + `</table>`;
     }
-    h += sec('✅ 일치', ['ok']);
-    h += summaryHtml();
+    const oks = L(['ok']);
+    h += sec('✅', '일치', '결의서 = 일자별 기록', oks,
+      `<table class="hm-tb"><tr><th>결재</th><th>내용 · 거래처</th><th class="n">금액</th><th class="n">행</th></tr>` + oks.map(it => {
+        const d = it.doc;
+        return `<tr><td>${esc(sd6(d.completed || d.drafted))}</td><td>${docLink(d, shortTitle(d.title, namesOf(site)) || d.title)}${d.bundle ? ` <span class="hm-tag hm-n">${d.sites.length}현장 묶음</span>` : ''}
+          <div class="s">${esc(d.vendor)}${d.bundle ? ' · 전체 ' + won(d.total) + ' 중 ' + esc(site) + ' 몫' : ''}</div></td><td class="n">${won(it.amount)}</td><td class="n">${it.row.row}</td></tr>`;
+      }).join('') + `</table>`);
+
+    h += `<div id="hm-pl"></div>`;
+    h += `<details class="hm-logd"><summary>진행 기록</summary><div class="hm-log" id="hm-log">${esc(logTxt)}</div></details>`;
     body.innerHTML = h;
     bindItems();
     updateCount();
   }
 
-  function itemHtml(it) {
-    const d = it.doc, [lab, cls] = KIND[it.kind];
+  function cardHtml(it) {
+    const d = it.doc;
     const canCheck = ['missing', 'missingBundle', 'setG', 'split'].includes(it.kind);
-    let detail = '';
-    if (it.kind === 'setG') detail = `<div class="m">${it.row.row}행 · ${it.row.date} · ${won(it.row.amount)} · ${esc(it.row.memo)} · G열 <b>${esc(it.row.site || '(빈칸)')}</b> → <b>${esc(STATE.site)}</b>${it.weak ? ' <span class="hm-tag hm-o">금액·날짜만 맞음 — 확인</span>' : ''}</div>`;
+    const color = it.kind === 'missing' || it.kind === 'missingBundle' ? 'bad' : 'warn';
+    let extra = '';
     if (it.kind === 'missing') {
-      detail = `<div class="m">추가할 줄: <input type="date" data-k="${it.key}" data-f="date" value="${esc(it.date)}" style="padding:2px 4px"> · ${won(it.amount)} · ${esc(d.vendor)} · <input data-k="${it.key}" data-f="memo" value="${esc(memoFor(STATE.site, d))}" style="width:60%;padding:2px 4px"></div>` +
-        (it.paid && it.paid.length ? `<div class="m">💳 지급 확인: ${esc(it.paid[0])}</div>` : `<div class="m" style="color:var(--hm-bad)">전체일정표에서 지급 내역을 못 찾음 — 확인 후 체크</div>`);
+      extra = `<div class="hm-add"><div class="hm-addr h"><span>일자</span><span>발전소명</span><span>적요</span><span class="n">금액</span></div>
+        <div class="hm-addr"><input type="date" data-k="${it.key}" data-f="date" value="${esc(it.date)}"><input data-k="${it.key}" data-f="siteName" value="${esc(it.siteName)}" list="hm-sites">
+        <input data-k="${it.key}" data-f="memo" value="${esc(it.memo)}"><input class="num n" data-k="${it.key}" data-f="amountEdit" value="${won(it.amountEdit)}"></div></div>` +
+        (it.paid && it.paid.length ? `<div class="hm-note ok">💳 전체일정표 지급 확인: ${esc(it.paid[0])}</div>`
+          : `<div class="hm-note">⚠ 전체일정표에서 지급 내역을 못 찾음 — 실제로 나갔는지 확인 후 체크</div>`);
     }
-    if (it.kind === 'split' || it.kind === 'missingBundle') detail = splitEditor(it);
-    if (it.kind === 'pending') detail = `<div class="m">현재 결재자: ${esc(d.current)} · ${won(it.amount)}</div>`;
-    if (it.kind === 'card') detail = `<div class="m">${won(it.amount)} — 카드결제는 일자별 기록에 넣지 않음</div>`;
-    if (it.kind === 'usd') detail = `<div class="m">US$ ${esc(d.usd)} — 원화 지급액을 일자별 기록에서 직접 확인</div>`;
-    if (it.kind === 'ok') detail = `<div class="m">${it.row.row}행 · ${it.row.date} · ${won(it.amount)}</div>`;
+    if (it.kind === 'check') extra = `<div class="hm-note">본문에 '${esc(STATE.site)}'이(가) 들어 있어 같이 검색됨 — 현장명을 잘못 썼거나 참조가 잘못 걸린 건. 한비로에서 확인해 주세요.</div>`;
+    if (it.kind === 'setG') extra = `<div class="hm-add">${it.row.row}행 · ${esc(it.row.date)} · ${esc(it.row.memo)}<br>G열 <b>${esc(it.row.site || '(빈칸)')}</b> → <b>${esc(STATE.site)}</b></div>` +
+      (it.weak ? `<div class="hm-note">금액·날짜만 맞음 — 같은 건인지 확인 후 체크</div>` : '');
+    if (it.kind === 'split' || it.kind === 'missingBundle') extra = `<div class="hm-add">${splitEditor(it)}</div>`;
     const att = d.attachments && d.attachments.length && (it.kind === 'split' || it.kind === 'missingBundle') && d.needAttach
-      ? `<div class="m">📎 ${d.attachments.map(esc).join(', ')} — <a href="${HANBIRO_DOC(d.id)}" target="_blank" rel="noopener">한비로에서 첨부 미리보기</a></div>` : '';
-    const cmt = d.comments && !/^0\/0$/.test(d.comments) ? `<div class="m">💬 의견/변경기록 ${esc(d.comments)} — 한비로에서 확인</div>` : '';
-    return `<div class="hm-item"><label>${canCheck ? `<input type="checkbox" data-k="${it.key}" ${it.checked ? 'checked' : ''}>` : ''}
-      <div style="flex:1"><div class="t">${docLink(d)}<span class="hm-tag ${cls}">${lab}</span></div>
-      <div class="m">${esc(d.drafted)} 기안 · ${esc(d.vendor)} · 결의 ${won(d.total)}${d.bundle ? ' · 묶음 ' + d.sites.length + '현장' : ''}${d.share && d.bundle ? ' · 이 현장 ' + won(d.share) : ''}</div>
-      ${detail}${att}${cmt}</div></label></div>`;
+      ? `<div class="hm-note mut">📎 ${d.attachments.map(esc).join(', ')} — ${docLink(d, '한비로에서 첨부 보기')}</div>` : '';
+    const cmt = d.comments && !/^0\/0$/.test(d.comments) ? `<div class="hm-note mut">💬 의견/변경기록 ${esc(d.comments)} — 한비로에서 확인</div>` : '';
+    return `<div class="hm-card ${color}">
+      <label class="r1">${canCheck ? `<input type="checkbox" data-k="${it.key}" ${it.checked ? 'checked' : ''}>` : ''}<span class="ttl">${docLink(d)}</span><span class="amt">${won(it.amount || d.total)}</span></label>
+      <div class="hm-kv"><span>발전소</span><span>${siteText(it)}</span><span>거래처</span><span>${esc(d.vendor || '?')}</span><span>결재</span><span>${apprText(d)}</span>
+      ${d.bundle && it.kind !== 'check' ? `<span>결의 합계</span><span>${won(d.total)}${d.share ? ' · 이 현장 ' + won(d.share) : ''}</span>` : ''}</div>
+      ${extra}${att}${cmt}</div>`;
   }
 
   function memoFor(site, d) { return site + ' ' + shortTitle(d.title, namesOf(site).concat(d.sites)); }
@@ -508,15 +586,14 @@
   function splitEditor(it) {
     const total = it.kind === 'split' ? it.row.amount : it.doc.total;
     const rowsHtml = it.parts.map((p, i) => `<tr><td style="width:45%"><input data-k="${it.key}" data-p="${i}" data-f="site" value="${esc(p.site)}" list="hm-sites"></td>
-      <td><input class="num" data-k="${it.key}" data-p="${i}" data-f="amount" value="${p.amount ? won(p.amount) : ''}"></td>
-      <td style="width:26px"><button data-k="${it.key}" data-del="${i}" title="삭제">×</button></td></tr>`).join('');
-    const where = it.kind === 'split' ? `${it.row.row}행 ${it.row.date} · ${won(it.row.amount)} · ${esc(it.row.memo)} (G열 ${esc(it.row.site || '빈칸')})를 아래처럼 나눔`
-      : `일자별 기록에 묶음 줄도 없음 — 이 현장 몫만 새 줄로 추가 (날짜 <input type="date" data-k="${it.key}" data-f="date" value="${esc(it.date)}" style="padding:2px 4px">)`;
-    return `<div class="m">${where}</div>
+      <td><input class="num n" data-k="${it.key}" data-p="${i}" data-f="amount" value="${p.amount ? won(p.amount) : ''}"></td>
+      <td style="width:30px"><button data-k="${it.key}" data-del="${i}" title="삭제">×</button></td></tr>`).join('');
+    const where = it.kind === 'split' ? `${it.row.row}행 · ${esc(it.row.date)} · ${won(it.row.amount)} · ${esc(it.row.memo)} (G열 ${esc(it.row.site || '빈칸')}) → 아래처럼 나눔`
+      : `일자별 기록에 묶음 줄도 없음 — 이 현장 몫만 새 줄로 추가 · 일자 <input type="date" data-k="${it.key}" data-f="date" value="${esc(it.date)}">`;
+    return `<div>${where}</div>
       <table class="hm-split">${rowsHtml}</table>
       <div style="display:flex;gap:6px;margin-top:4px"><button data-k="${it.key}" data-addp="1">+ 현장</button><button data-k="${it.key}" data-even="1">n분의1</button></div>
-      <div class="hm-sum" id="hm-sum-${it.key}"></div>
-      <input type="hidden" data-total="${it.key}" value="${total}">`;
+      <div class="hm-sum" id="hm-sum-${it.key}"></div>`;
   }
 
   function bindItems() {
@@ -528,7 +605,8 @@
         const p = it.parts[+inp.dataset.p];
         if (inp.dataset.f === 'amount') p.amount = money(inp.value); else p.site = inp.value.trim();
         checkSplit(it);
-      } else it[inp.dataset.f] = inp.value;
+      } else if (inp.dataset.f === 'amountEdit') { it.amountEdit = money(inp.value); updateCount(); }
+      else it[inp.dataset.f] = inp.value.trim();
     }));
     body.querySelectorAll('input.num[data-k]').forEach(inp => inp.addEventListener('blur', () => { inp.value = money(inp.value) ? won(money(inp.value)) : ''; }));
     body.querySelectorAll('button[data-del]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); const it = item(b.dataset.k); it.parts.splice(+b.dataset.del, 1); render(); }));
@@ -554,34 +632,40 @@
     updateCount();
   }
 
-  function summaryHtml() {
-    const r = STATE.res;
+  // 체크한 것을 반영하면 이 현장 지출이 얼마나 늘어나는지
+  function addAmount() {
     let add = 0;
-    r.items.forEach(it => {
+    STATE.res.items.forEach(it => {
       if (!it.checked) return;
-      if (it.kind === 'missing' || it.kind === 'setG') add += it.amount;
-      if (it.kind === 'split') add += (it.parts.find(p => p.site === STATE.site) || {}).amount || 0;
-      if (it.kind === 'missingBundle') add += (it.parts.find(p => p.site === STATE.site) || {}).amount || 0;
+      if (it.kind === 'missing') add += (it.siteName || STATE.site) === STATE.site ? (it.amountEdit || 0) : 0;
+      if (it.kind === 'setG') add += it.amount;
+      if (it.kind === 'split' || it.kind === 'missingBundle') add += (it.parts.find(p => p.site === STATE.site) || {}).amount || 0;
     });
-    const invNote = (STATE.sd.invoices || []).length ? '' : ' (계산서발행 탭에 없음)';
-    return `<div id="hm-summary"><div class="hm-sec">손익 <small>계산서는 현장별 자금현황 '계산서발행' 탭 기준 — ERP 연결 후 바뀜</small></div>
-      <div class="hm-box"><table>
-      <tr><td>계산서 발행금액${invNote}</td><td>${won(r.inv)}</td></tr>
-      <tr><td>입금 합계</td><td>${won(r.inc)}</td></tr>
-      <tr><td>미수금</td><td>${won(r.inv - r.inc)}</td></tr>
-      <tr><td>지출 (지금 일자별 기록)</td><td>${won(r.exp)}</td></tr>
-      <tr><td>이익 (지금)</td><td><b>${won(r.inv - r.exp)}</b></td></tr>
-      <tr><td>체크한 것 반영 후 지출</td><td>${won(r.exp + add)}</td></tr>
-      <tr><td>체크한 것 반영 후 이익</td><td><b>${won(r.inv - r.exp - add)}</b></td></tr>
-      </table><div class="m" style="margin-top:6px">과입금 반환은 이익 계산에서 따로 빼서 보세요.</div></div>`;
+    return add;
+  }
+  function moneyHtml() {
+    const r = STATE.res, add = addAmount();
+    return `<div class="hm-money"><div>지금 지출<b>${won(r.exp)}</b></div><div>체크한 것 반영 시<b class="${add ? 'plus' : ''}">${add ? '+' + won(add) : '0'}</b></div><div>반영 후 지출<b>${won(r.exp + add)}</b></div></div>`;
+  }
+  function plHtml() {
+    const r = STATE.res, add = addAmount();
+    const invNote = (STATE.sd.invoices || []).length ? '' : ' <small>(계산서발행 탭에 없음)</small>';
+    return `<div class="hm-sec">💰 손익 <small>계산서는 '계산서발행' 탭 기준 · ERP 연결 후 바뀜</small></div>
+      <table class="hm-tb pl">
+      <tr><td>계산서 발행금액${invNote}</td><td class="n">${won(r.inv)}</td></tr>
+      <tr><td>입금 합계</td><td class="n">${won(r.inc)}</td></tr>
+      <tr><td>미수금</td><td class="n">${won(r.inv - r.inc)}</td></tr>
+      <tr><td>지출 (반영 후)</td><td class="n">${won(r.exp + add)}</td></tr>
+      <tr class="b"><td>이익 (반영 후)</td><td class="n">${won(r.inv - r.exp - add)}</td></tr></table>`;
   }
 
   function updateCount() {
     if (!STATE) return;
-    const n = STATE.res.items.filter(i => i.checked).length;
-    $('#hm-cnt').textContent = '선택 ' + n + '건';
-    $('#hm-apply').disabled = n === 0;
-    const sm = $('#hm-summary'); if (sm) sm.outerHTML = summaryHtml();
+    const sel = STATE.res.items.filter(i => i.checked);
+    $('#hm-cnt').innerHTML = `선택 <b>${sel.length}건</b> · ${won(addAmount())}원`;
+    $('#hm-apply').disabled = sel.length === 0;
+    const m = $('#hm-money'); if (m) m.innerHTML = moneyHtml();
+    const p = $('#hm-pl'); if (p) p.innerHTML = plHtml();
   }
 
   /* ===================== 반영 ===================== */
@@ -590,7 +674,7 @@
     const changes = [];
     STATE.res.items.filter(i => i.checked).forEach(it => {
       if (it.kind === 'setG') changes.push({ type: 'setG', row: it.row.row, expect: { amount: it.row.amount }, value: site });
-      if (it.kind === 'missing') changes.push({ type: 'insert', date: it.date, inout: '지출', amount: it.amount, vendor: it.doc.vendor, memo: it.memo || memoFor(site, it.doc), site });
+      if (it.kind === 'missing') changes.push({ type: 'insert', date: it.date, inout: '지출', amount: it.amountEdit || it.amount, vendor: it.doc.vendor, memo: it.memo || memoFor(site, it.doc), site: it.siteName || site });
       if (it.kind === 'split') {
         const base = shortTitle(it.row.memo, it.doc.sites.flatMap(namesOf)) || shortTitle(it.doc.title, it.doc.sites.flatMap(namesOf));
         changes.push({ type: 'split', row: it.row.row, expect: { amount: it.row.amount },
