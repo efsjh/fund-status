@@ -204,18 +204,23 @@
     return [...out].filter(n => n.length >= 2 || n === site);
   }
   // 글자 안에서 이름 찾기 (한 글자 이름은 앞뒤가 한글이 아닐 때만)
-  function findName(text, name) {
+  // strict: 다른 현장 찾을 때 — 앞이 한글이면 안 됨(김지현→지현 X), 뒤가 한글이면 태양광·발전소·호만 허용(태양광→태양 X)
+  function findName(text, name, strict) {
+    if (strict) {
+      const re = new RegExp('(^|[^가-힣])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[^가-힣]|태양광|발전소|호|$)');
+      const m = re.exec(text); return m ? m.index + m[1].length : -1;
+    }
     if (name.length >= 2) return text.indexOf(name);
     const re = new RegExp('(^|[^가-힣])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[^가-힣]|태양광|$)');
     const m = re.exec(text); return m ? m.index + m[1].length : -1;
   }
-  function sitesIn(text) {
+  function sitesIn(text, target) {
     const hits = [];
     const all = new Set(SITES);
     ALIASES.forEach(a => all.add(a.site));
     all.forEach(site => {
       let best = -1;
-      namesOf(site).forEach(n => { const i = findName(text, n); if (i >= 0 && (best < 0 || i < best)) best = i; });
+      namesOf(site).forEach(n => { const i = findName(text, n, site !== target); if (i >= 0 && (best < 0 || i < best)) best = i; });
       if (best >= 0) hits.push({ site, idx: best });
     });
     // 긴 이름에 포함되는 짧은 이름 제거 (예: '경도'가 '경도외'에, '한빛'이 '한빛1~3호'에)
@@ -247,13 +252,18 @@
       attachments: doc.attachments || [], comments: doc.comments || '',
       sites: [], shares: {}, share: null, bundle: false, bundleOK: false, needAttach: false,
     };
-    const found = sitesIn(all);
+    const found = sitesIn(all, target);
     d.sites = found.map(f => f.site);
     if (!d.sites.includes(target)) d.sites.unshift(target);
+    // 결의서 제목에 이 현장만 있으면(다른 현장·'외 n건'·쉼표 나열 없음) 한 현장 건으로 봄
+    const ttl = d.title || '';
+    const tSites = sitesIn(ttl, target).map(f => f.site);
+    const titleSingle = tSites.includes(target) && tSites.length === 1 && !/외\s?\d+\s?건|[,，·]/.test(ttl);
+    if (titleSingle) d.sites = [target];
     // 다른 현장 이름을 못 알아봐도 '○○ 외 n건'이나 쉼표로 나열된 목록이면 묶음으로 봄
     const listHint = /외\s?\d+\s?건/.test(all) || namesOf(target).some(n => n.length >= 1 &&
       new RegExp('[,，·]\\s*' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![가-힣])|(^|[^가-힣])' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[,，·]').test(all));
-    d.bundle = d.sites.length > 1 || listHint;
+    d.bundle = !titleSingle && (d.sites.length > 1 || listHint);
     if (!d.bundle) { d.share = d.total; d.shares[target] = d.total; return d; }
     // 현장별 금액: 본문에 나오는 모든 현장 이름 위치를 잡고, 이름 ~ 다음 이름(또는 '합 계') 사이에서
     // (공급가액, VAT포함) 짝을 찾아 VAT포함 금액을 씀. 짝이 없으면 바로 뒤 금액 하나만 있을 때 그 금액.
@@ -262,7 +272,7 @@
     allSites.forEach(site => namesOf(site).forEach(n => {
       if (n.length < 2 && n !== site) return;
       let from = 0, i;
-      while ((i = findName(body.slice(from), n)) >= 0) { occ.push({ site, idx: from + i, len: n.length }); from += i + n.length; }
+      while ((i = findName(body.slice(from), n, site !== target)) >= 0) { occ.push({ site, idx: from + i, len: n.length }); from += i + n.length; }
     }));
     occ.sort((a, b) => a.idx - b.idx || b.len - a.len);
     const stops = []; let mm; const reStop = /합\s?계|합계금액|첨부서류|비\s?고/g;
@@ -317,9 +327,19 @@
       // 2) 결의서 읽기
       log('결의서 ' + list.length + '건 읽는 중… (한비로 탭 화면이 바뀝니다)');
       const docs = await ext({ action: 'readDocs', ids: list.map(x => x.id) }, 600000);
+      const bad = (doc, i) => !doc.error && (!/[\d,]{5,}/.test(doc.body || '') || !/지급요청금액|지출결의액|합계금액|합\s?계/.test(doc.body || '') ||
+        docs.some((o, j) => j !== i && o.body && o.body === doc.body));
+      for (let round = 0; round < 2; round++) {
+        const redo = docs.map((doc, i) => bad(doc, i) ? i : -1).filter(i => i >= 0);
+        if (!redo.length) break;
+        log('제대로 못 읽은 결의서 ' + redo.length + '건 다시 읽는 중…');
+        for (const i of redo) {
+          try { const [again] = await ext({ action: 'readDocs', ids: [list[i].id] }, 60000); if (again && again.body) docs[i] = again; } catch (e) {}
+        }
+      }
       let parsed = docs.map((doc, i) => doc.error ? null : parseDoc(list[i], doc, site)).filter(Boolean);
       // 본문에 이 현장이 실제로 없으면(전문검색 잡음) 제외
-      parsed = parsed.filter(d => sitesIn(d.title + '\n' + (docs.find(x => x.id === d.id) || {}).body).some(h => h.site === site));
+      parsed = parsed.filter(d => sitesIn(d.title + '\n' + (docs.find(x => x.id === d.id) || {}).body, site).some(h => h.site === site));
       log('이 현장 결의서 ' + parsed.length + '건');
       // 3) 시트 읽기
       const amounts = [];
@@ -401,7 +421,13 @@
     const dup = [];
     const bySig = {};
     rows.filter(r => r.site === site && r.inout !== '입금').forEach(r => { const k = r.amount; (bySig[k] = bySig[k] || []).push(r); });
-    Object.values(bySig).forEach(g => { if (g.length > 1 && g[0].amount >= 100000) dup.push(g); });
+    const stage = r => ((r.memo || '').match(/계약금|선급금|중도금|기성|잔금|1차|2차|3차/) || [''])[0];
+    Object.values(bySig).forEach(g => {
+      if (g.length < 2 || g[0].amount < 100000) return;
+      if (g.every(r => used.has(r.row))) return;                       // 줄마다 각자 결의서가 있음 → 중복 아님
+      if (new Set(g.map(stage)).size === g.length && g.every(stage)) return; // 계약금/잔금처럼 단계가 다 다름
+      dup.push(g);
+    });
 
     const inc = rows.filter(r => r.site === site && r.inout === '입금').reduce((s, r) => s + r.amount, 0);
     const exp = rows.filter(r => r.site === site && r.inout !== '입금').reduce((s, r) => s + r.amount, 0);
