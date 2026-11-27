@@ -132,7 +132,13 @@
   .hm-logd{margin-top:14px;font-size:12px;color:var(--hm-mut)} .hm-logd summary{cursor:pointer}
   #hm-foot b{color:var(--hm-fg)}
   .hm-warnbar{background:var(--hm-warnbg);color:var(--hm-warn);border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:8px}
-  .hm-set{display:grid;gap:6px;padding:10px 14px;border-bottom:1px solid var(--hm-line);background:var(--hm-soft)}
+  #hm-panel .hm-tabs{display:flex;gap:2px;margin:2px 0 8px;border-bottom:1px solid var(--hm-line)}
+#hm-panel .hm-tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:7px 10px;color:var(--hm-mut);font-size:13.5px}
+#hm-panel .hm-tabs button.on{border-bottom-color:var(--hm-acc);color:var(--hm-fg);font-weight:700}
+#hm-panel .hm-tabs button i{font-style:normal;font-size:11.5px;margin-left:3px;padding:0 6px;border-radius:99px;background:var(--hm-soft)}
+.hm-tile[data-hmtab]{cursor:pointer} .hm-tile.sel{outline:2px solid var(--hm-acc);outline-offset:-2px}
+.hm-empty{color:var(--hm-mut);font-size:13px;padding:18px 4px;text-align:center}
+.hm-set{display:grid;gap:6px;padding:10px 14px;border-bottom:1px solid var(--hm-line);background:var(--hm-soft)}
   `;
 
   function mount() {
@@ -348,6 +354,9 @@
 
   /* ===================== 매칭 ===================== */
   let STATE = null;
+  // 결과 탭: todo(미입력·수정) / ok(일치) / pend(미승인) / all(전체)
+  let TAB = 'todo';
+  const TABK = { todo: ['missing', 'missingBundle', 'setG', 'split', 'check'], ok: ['ok'], pend: ['pending', 'card', 'usd'] };
 
   function log(msg) { const el = $('#hm-log'); if (el) { el.textContent += msg + '\n'; el.scrollTop = 1e9; } }
 
@@ -365,7 +374,16 @@
       log('한비로에서 "' + kw + '" 검색 중…');
       const sr = await ext({ action: 'search', keyword: kw, maxPages: site.length <= 1 ? 15 : 5 });
       let list = sr.docs || [];
-      log('검색 결과 ' + (sr.total || list.length) + '건 / 목록 ' + list.length + '건');
+      // 한비로 목록이 다 뜨기 전에 읽으면 일부만 잡힐 때가 있어 한 번 더 검색해서 합침
+      try {
+        await sleep(1500);
+        const sr2 = await ext({ action: 'search', keyword: kw, maxPages: site.length <= 1 ? 15 : 5 });
+        const before = list.length;
+        (sr2.docs || []).forEach(x => { if (!list.some(y => y.id === x.id)) list.push(x); });
+        if (list.length > before) log('다시 검색해서 ' + (list.length - before) + '건 더 찾음');
+        sr.total = Math.max(sr.total || 0, sr2.total || 0);
+      } catch (e) { log('재검색 실패: ' + e.message); }
+      log('검색 결과 ' + Math.max(sr.total || 0, list.length) + '건 / 목록 ' + list.length + '건');
       if (site.length <= 1) list = list.filter(x => new RegExp('^' + site + '([ _]|태양광)').test(x.title));
       // 별칭으로도 검색 (2글자 이상)
       for (const n of names.filter(n => n !== site && n.length >= 2).slice(0, 3)) {
@@ -414,6 +432,7 @@
         } catch (e) { log('지급 확인 실패: ' + e.message); }
       }
       STATE = { site, names, docs: parsed, sd, res };
+      TAB = res.items.some(i => TABK.todo.includes(i.kind)) ? 'todo' : 'all';
       render();
     } catch (e) {
       log('✖ ' + e.message);
@@ -490,7 +509,7 @@
 
   /* ===================== 결과 그리기 ===================== */
   const KIND = {
-    missing: ['입력 누락', 'hm-r'], missingBundle: ['입력 누락 · 금액 확인', 'hm-r'], check: ['확인 필요', 'hm-o'],
+    missing: ['미입력', 'hm-r'], missingBundle: ['미입력 · 금액 확인', 'hm-r'], check: ['확인 필요', 'hm-o'],
     setG: ['발전소명 수정', 'hm-o'], split: ['묶음 나누기', 'hm-o'],
     ok: ['일치', 'hm-g'], pending: ['미승인', 'hm-n'], card: ['카드', 'hm-n'], usd: ['외화', 'hm-n'],
   };
@@ -522,20 +541,26 @@
     const nDocs = res.items.length;
     let h = '';
     if (notes.length) h += `<div class="hm-warnbar">⚠ ${esc([...new Set(notes)].join(' / '))}</div>`;
+    const sl = k => TAB === k ? ' sel' : '';
     h += `<div class="hm-tiles">
-      <div class="hm-tile"><b>${nDocs}</b><span>결의서</span></div>
-      <div class="hm-tile ok"><b>${cnt(['ok'])}</b><span>일치</span></div>
-      <div class="hm-tile bad"><b>${cnt(['missing', 'missingBundle', 'setG', 'split'])}</b><span>입력·수정</span></div>
-      <div class="hm-tile warn"><b>${cnt(['check'])}</b><span>확인 필요</span></div>
-      <div class="hm-tile"><b>${cnt(['pending', 'card', 'usd'])}</b><span>미승인 등</span></div></div>`;
+      <div class="hm-tile${sl('all')}" data-hmtab="all"><b>${nDocs}</b><span>결의서</span></div>
+      <div class="hm-tile ok${sl('ok')}" data-hmtab="ok"><b>${cnt(['ok'])}</b><span>일치</span></div>
+      <div class="hm-tile bad${sl('todo')}" data-hmtab="todo"><b>${cnt(['missing', 'missingBundle', 'setG', 'split'])}</b><span>미입력·수정</span></div>
+      <div class="hm-tile warn${sl('todo')}" data-hmtab="todo"><b>${cnt(['check'])}</b><span>확인 필요</span></div>
+      <div class="hm-tile${sl('pend')}" data-hmtab="pend"><b>${cnt(['pending', 'card', 'usd'])}</b><span>미승인 등</span></div></div>`;
+    const TB = [['todo', '미입력·수정'], ['pend', '미승인'], ['ok', '일치'], ['all', '전체']];
+    h += `<div class="hm-tabs">${TB.map(([k, t]) => `<button data-hmtab="${k}" class="${TAB === k ? 'on' : ''}">${t}<i>${k === 'all' ? nDocs : cnt(TABK[k])}</i></button>`).join('')}</div>`;
     h += `<div id="hm-money"></div>`;
 
     const total = list => won(list.reduce((s, i) => s + (i.amount || 0), 0));
     const sec = (icon, title, sub, list, body) => list.length
       ? `<div class="hm-sec">${icon} ${title} <small>${sub}</small><span class="tot">${total(list)}</span></div>` + body : '';
-    const L = k => res.items.filter(i => k.includes(i.kind));
+    const show = k => TAB === 'all' || TAB === k;
+    const L0 = k => res.items.filter(i => k.includes(i.kind));
+    const L = k => res.items.filter(i => k.includes(i.kind) && show(Object.keys(TABK).find(t => TABK[t].includes(i.kind))));
+    const nShown = res.items.filter(i => show(Object.keys(TABK).find(t => TABK[t].includes(i.kind)))).length;
 
-    h += sec('🔴', '입력 누락', '이도훈 승인 끝 · 일자별 기록에 없음', L(['missing', 'missingBundle']), L(['missing', 'missingBundle']).map(cardHtml).join(''));
+    h += sec('🔴', '미입력', '이도훈 승인 끝 · 일자별 기록에 없음 · 체크 후 반영', L(['missing', 'missingBundle']), L(['missing', 'missingBundle']).map(cardHtml).join(''));
     h += sec('🟠', '확인 필요', `제목의 발전소가 ${esc(site)}이(가) 아님`, L(['check']), L(['check']).map(cardHtml).join(''));
     h += sec('🟡', '발전소명 수정', '일자별 기록에 있는데 G열이 다름', L(['setG']), L(['setG']).map(cardHtml).join(''));
     h += sec('🟡', '묶음 나누기', '합계가 결의서와 같아야 반영', L(['split']), L(['split']).map(cardHtml).join(''));
@@ -548,11 +573,12 @@
         return `<tr><td>${docLink(d, shortTitle(d.title, []) || d.title)}<div class="s">${esc(d.vendor || '거래처 ?')} · 기안 ${esc(sd6(d.drafted))}${d.bundle ? ' · ' + d.sites.length + '현장 묶음' : ''}</div></td><td>${st}</td><td class="n">${won(it.amount)}</td></tr>`;
       }).join('') + `</table>`);
 
-    if (res.dup.length) {
+    if (!nShown) h += `<div class="hm-empty">${TAB === 'todo' ? '미입력·수정할 결의서가 없어요 — 이도훈 승인 끝난 건은 모두 일자별 기록에 있어요' : TAB === 'pend' ? '이도훈 미승인 결의서가 없어요' : '이 탭에 해당하는 결의서가 없어요'}</div>`;
+    if (res.dup.length && show('todo')) {
       h += `<div class="hm-sec">⚪ 중복 의심 <small>같은 금액 줄이 여러 개 · 알림만</small></div><table class="hm-tb"><tr><th>행</th><th>일자 · 내용</th><th class="n">금액</th></tr>` +
         res.dup.map(g => g.map(r => `<tr><td>${r.row}</td><td>${esc(r.date)}<div class="s">${esc(r.vendor)} · ${esc(r.memo)}</div></td><td class="n">${won(r.amount)}</td></tr>`).join('')).join('') + `</table>`;
     }
-    if (res.orphan.length) {
+    if (res.orphan.length && show('todo')) {
       h += `<div class="hm-sec">⚪ 결의서를 못 찾은 지출 <small>일자별 기록에만 있음 · 묶음·다른 이름일 수 있음</small><span class="tot">${won(res.orphan.reduce((s, r) => s + r.amount, 0))}</span></div>
         <table class="hm-tb"><tr><th>행</th><th>일자 · 내용</th><th class="n">금액</th></tr>` +
         res.orphan.map(r => `<tr><td>${r.row}</td><td>${esc(r.date)}<div class="s">${esc(r.vendor)} · ${esc(r.memo)}</div></td><td class="n">${won(r.amount)}</td></tr>`).join('') + `</table>`;
@@ -568,6 +594,7 @@
     h += `<div id="hm-pl"></div>`;
     h += `<details class="hm-logd"><summary>진행 기록</summary><div class="hm-log" id="hm-log">${esc(logTxt)}</div></details>`;
     body.innerHTML = h;
+    body.querySelectorAll('[data-hmtab]').forEach(el => el.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); TAB = el.dataset.hmtab; render(); }));
     bindItems();
     updateCount();
   }
